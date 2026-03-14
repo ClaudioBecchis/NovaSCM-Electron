@@ -1,48 +1,115 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from '../services/api';
 import store from '../services/store';
 
-export default function SettingsTab({ addLog }) {
+// ---------------------------------------------------------------------------
+// Deep equality check for dirty state
+// ---------------------------------------------------------------------------
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== 'object') return String(a) === String(b);
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (!deepEqual(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// SettingsTab
+// ---------------------------------------------------------------------------
+
+export default function SettingsTab({ addLog, config: parentConfig, updateConfig: parentUpdateConfig, toast }) {
   const [config, setConfig] = useState({});
+  const [savedConfig, setSavedConfig] = useState({});
   const [connStatus, setConnStatus] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const fileInputRef = useRef(null);
 
+  // Load config on mount
   useEffect(() => {
-    setConfig(store.loadConfig());
+    const loaded = store.loadConfig();
+    setConfig(loaded);
+    setSavedConfig(loaded);
   }, []);
 
-  const updateConfig = (key, value) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
-  };
+  // Track dirty state
+  useEffect(() => {
+    setDirty(!deepEqual(config, savedConfig));
+  }, [config, savedConfig]);
 
-  const handleSave = () => {
+  const updateField = useCallback((key, value) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Save
+  // -----------------------------------------------------------------------
+  const handleSave = useCallback(() => {
     const toSave = { ...config };
-    // Convert scanNetworks from textarea to array if needed
+
+    // Convert scanNetworks from textarea string to array
     if (typeof toSave.scanNetworks === 'string') {
       toSave.scanNetworks = toSave.scanNetworks.split('\n').map(s => s.trim()).filter(Boolean);
     }
-    if (typeof toSave.commonPorts === 'string') {
-      toSave.commonPorts = toSave.commonPorts.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-    }
+
+    // Persist to localStorage
     store.saveConfig(toSave);
+    setSavedConfig(toSave);
+    setConfig(toSave);
+
+    // Reconfigure API client with new URL/key
+    if (toSave.apiUrl) {
+      api.configure(toSave.apiUrl, toSave.apiKey || '');
+    }
+
+    // Notify parent
+    parentUpdateConfig?.(toSave);
+
+    if (toast) {
+      toast('Impostazioni salvate', 'success');
+    } else {
+      addLog?.('Impostazioni salvate', 'success');
+    }
+  }, [config, addLog, toast, parentUpdateConfig]);
+
+  // -----------------------------------------------------------------------
+  // Reset to defaults
+  // -----------------------------------------------------------------------
+  const handleResetDefaults = useCallback(() => {
+    if (!window.confirm('Ripristinare tutte le impostazioni ai valori predefiniti?')) return;
+    const defaults = { ...store.DEFAULT_CONFIG };
+    store.saveConfig(defaults);
+    setConfig(defaults);
+    setSavedConfig(defaults);
 
     // Reconfigure API
-    if (toSave.apiUrl) {
-      api.default.configure(toSave.apiUrl, toSave.apiKey || '');
+    api.configure(defaults.apiUrl, defaults.apiKey || '');
+    parentUpdateConfig?.(defaults);
+
+    if (toast) {
+      toast('Impostazioni ripristinate ai valori predefiniti', 'success');
+    } else {
+      addLog?.('Impostazioni ripristinate ai valori predefiniti', 'success');
     }
+  }, [addLog, toast, parentUpdateConfig]);
 
-    addLog('Impostazioni salvate', 'success');
-  };
+  // -----------------------------------------------------------------------
+  // Export config as JSON download
+  // -----------------------------------------------------------------------
+  const handleExport = useCallback(() => {
+    const exportData = { ...config };
+    // Ensure arrays are arrays for export
+    if (typeof exportData.scanNetworks === 'string') {
+      exportData.scanNetworks = exportData.scanNetworks.split('\n').map(s => s.trim()).filter(Boolean);
+    }
+    const json = JSON.stringify(exportData, null, 2);
 
-  const handleResetDefaults = () => {
-    if (!confirm('Ripristinare tutte le impostazioni ai valori predefiniti?')) return;
-    store.saveConfig(store.DEFAULT_CONFIG);
-    setConfig({ ...store.DEFAULT_CONFIG });
-    addLog('Impostazioni ripristinate ai valori predefiniti', 'success');
-  };
-
-  const handleExport = () => {
-    const json = JSON.stringify(config, null, 2);
     if (window.electronAPI?.saveFile) {
       window.electronAPI.saveFile({
         defaultPath: 'novascm-config.json',
@@ -50,7 +117,8 @@ export default function SettingsTab({ addLog }) {
       }).then(path => {
         if (path) {
           window.electronAPI.writeFile(path, json);
-          addLog('Configurazione esportata', 'success');
+          if (toast) toast('Configurazione esportata', 'success');
+          else addLog?.('Configurazione esportata', 'success');
         }
       }).catch(() => {});
     } else {
@@ -61,19 +129,35 @@ export default function SettingsTab({ addLog }) {
       a.download = 'novascm-config.json';
       a.click();
       URL.revokeObjectURL(url);
-      addLog('Configurazione esportata', 'success');
+      if (toast) toast('Configurazione esportata', 'success');
+      else addLog?.('Configurazione esportata', 'success');
     }
-  };
+  }, [config, addLog, toast]);
 
-  const handleImport = () => {
+  // -----------------------------------------------------------------------
+  // Import config from JSON
+  // -----------------------------------------------------------------------
+  const handleImport = useCallback(() => {
     const doImport = (text) => {
       try {
         const imported = JSON.parse(text);
-        store.saveConfig(imported);
-        setConfig(imported);
-        addLog('Configurazione importata', 'success');
+        // Merge with defaults to ensure no missing keys
+        const merged = { ...store.DEFAULT_CONFIG, ...imported };
+        store.saveConfig(merged);
+        setConfig(merged);
+        setSavedConfig(merged);
+
+        // Reconfigure API
+        if (merged.apiUrl) {
+          api.configure(merged.apiUrl, merged.apiKey || '');
+        }
+        parentUpdateConfig?.(merged);
+
+        if (toast) toast('Configurazione importata', 'success');
+        else addLog?.('Configurazione importata', 'success');
       } catch (e) {
-        addLog(`Errore importazione: ${e.message}`, 'error');
+        if (toast) toast(`Errore importazione: ${e.message}`, 'error');
+        else addLog?.(`Errore importazione: ${e.message}`, 'error');
       }
     };
 
@@ -94,45 +178,58 @@ export default function SettingsTab({ addLog }) {
       };
       input.click();
     }
-  };
+  }, [addLog, toast, parentUpdateConfig]);
 
-  const handleTestConnection = async () => {
+  // -----------------------------------------------------------------------
+  // Test Connection
+  // -----------------------------------------------------------------------
+  const handleTestConnection = useCallback(async () => {
     setTesting(true);
     setConnStatus(null);
     try {
       const url = config.apiUrl || store.DEFAULT_CONFIG.apiUrl;
       const key = config.apiKey || '';
-      api.default.configure(url, key);
+
+      // Temporarily configure API with current (unsaved) values for testing
+      api.configure(url, key);
 
       const [health, version] = await Promise.all([
         api.checkHealth(),
         api.getVersion().catch(() => null),
       ]);
+
       setConnStatus({
         ok: true,
         version: version?.version || version?.server_version || 'N/D',
       });
-      addLog(`Connessione riuscita: ${url}`, 'success');
+
+      if (toast) toast(`Connessione riuscita: ${url}`, 'success');
+      else addLog?.(`Connessione riuscita: ${url}`, 'success');
     } catch (e) {
       setConnStatus({ ok: false, error: e.message });
-      addLog(`Connessione fallita: ${e.message}`, 'error');
+      if (toast) toast(`Connessione fallita: ${e.message}`, 'error');
+      else addLog?.(`Connessione fallita: ${e.message}`, 'error');
     } finally {
       setTesting(false);
     }
-  };
+  }, [config.apiUrl, config.apiKey, addLog, toast]);
 
-  // Convert arrays to string for display
+  // -----------------------------------------------------------------------
+  // Display helpers
+  // -----------------------------------------------------------------------
+
+  // Convert scanNetworks array to newline-separated string for textarea
   const scanNets = Array.isArray(config.scanNetworks)
     ? config.scanNetworks.join('\n')
-    : (config.scanNetworks || '192.168.10.0/24\n192.168.20.0/24');
-  const commonPorts = Array.isArray(config.commonPorts)
-    ? config.commonPorts.join(',')
-    : (config.commonPorts || '22,80,135,139,443,445,3389,5900,8006,8080,8096,8123,8443,9000,9090,9091');
+    : (config.scanNetworks || '');
 
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
   return (
     <div style={{ maxWidth: 800 }}>
-      {/* CONNESSIONE SERVER */}
-      <div className="section-title">Connessione Server</div>
+      {/* ── SERVER ──────────────────────────────────────────────────────── */}
+      <div className="section-title">Server</div>
       <div style={{
         background: 'var(--bg-surface)', border: '1px solid var(--border)',
         borderRadius: 'var(--radius)', padding: 16, marginBottom: 20,
@@ -140,11 +237,24 @@ export default function SettingsTab({ addLog }) {
         <div className="form-row">
           <div className="form-group" style={{ flex: 2 }}>
             <label className="form-label">API URL</label>
-            <input className="form-input" value={config.apiUrl || ''} onChange={e => updateConfig('apiUrl', e.target.value)} placeholder="http://192.168.1.100:9091" style={{ fontFamily: 'var(--font-mono)' }} />
+            <input
+              className="form-input"
+              value={config.apiUrl || ''}
+              onChange={e => updateField('apiUrl', e.target.value)}
+              placeholder="http://192.168.1.100:9091"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            />
           </div>
           <div className="form-group" style={{ flex: 2 }}>
             <label className="form-label">API Key</label>
-            <input className="form-input" type="password" value={config.apiKey || ''} onChange={e => updateConfig('apiKey', e.target.value)} placeholder="Chiave API (opzionale)" />
+            <input
+              className="form-input"
+              type="password"
+              value={config.apiKey || ''}
+              onChange={e => updateField('apiKey', e.target.value)}
+              placeholder="Chiave API (opzionale)"
+              autoComplete="off"
+            />
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
@@ -168,28 +278,38 @@ export default function SettingsTab({ addLog }) {
         </div>
       </div>
 
-      {/* RETE */}
+      {/* ── RETE ────────────────────────────────────────────────────────── */}
       <div className="section-title">Rete</div>
       <div style={{
         background: 'var(--bg-surface)', border: '1px solid var(--border)',
         borderRadius: 'var(--radius)', padding: 16, marginBottom: 20,
       }}>
         <div className="form-group">
-          <label className="form-label">Subnet da Scansionare (una per riga)</label>
+          <label className="form-label">Subnet da Scansionare (una per riga, CIDR)</label>
           <textarea
             className="form-textarea"
             value={scanNets}
-            onChange={e => updateConfig('scanNetworks', e.target.value)}
+            onChange={e => updateField('scanNetworks', e.target.value)}
             style={{ minHeight: 60, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+            placeholder={'192.168.10.0/24\n192.168.20.0/24'}
           />
         </div>
-        <div className="form-group">
-          <label className="form-label">Porte Comuni (separate da virgola)</label>
-          <input className="form-input" value={commonPorts} onChange={e => updateConfig('commonPorts', e.target.value)} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Timeout Scansione (secondi)</label>
+            <input
+              className="form-input"
+              type="number"
+              value={config.scanTimeout || 5}
+              onChange={e => updateField('scanTimeout', parseInt(e.target.value) || 5)}
+              min={1}
+              max={60}
+            />
+          </div>
         </div>
       </div>
 
-      {/* CERTIFICATI */}
+      {/* ── CERTIFICATI ─────────────────────────────────────────────────── */}
       <div className="section-title">Certificati</div>
       <div style={{
         background: 'var(--bg-surface)', border: '1px solid var(--border)',
@@ -198,34 +318,57 @@ export default function SettingsTab({ addLog }) {
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">CertPortal URL</label>
-            <input className="form-input" value={config.certportalUrl || ''} onChange={e => updateConfig('certportalUrl', e.target.value)} style={{ fontFamily: 'var(--font-mono)' }} />
+            <input
+              className="form-input"
+              value={config.certportalUrl || ''}
+              onChange={e => updateField('certportalUrl', e.target.value)}
+              style={{ fontFamily: 'var(--font-mono)' }}
+              placeholder="http://192.168.1.100:9090"
+            />
           </div>
           <div className="form-group">
-            <label className="form-label">RADIUS IP</label>
-            <input className="form-input" value={config.radiusIp || ''} onChange={e => updateConfig('radiusIp', e.target.value)} style={{ fontFamily: 'var(--font-mono)' }} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">SSID</label>
-            <input className="form-input" value={config.ssid || ''} onChange={e => updateConfig('ssid', e.target.value)} />
+            <label className="form-label">Validita Certificato (giorni)</label>
+            <input
+              className="form-input"
+              type="number"
+              value={config.certDays || ''}
+              onChange={e => updateField('certDays', parseInt(e.target.value) || '')}
+            />
           </div>
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Validita Certificato (giorni)</label>
-            <input className="form-input" type="number" value={config.certDays || ''} onChange={e => updateConfig('certDays', parseInt(e.target.value) || '')} />
-          </div>
-          <div className="form-group">
             <label className="form-label">Organizzazione</label>
-            <input className="form-input" value={config.orgName || ''} onChange={e => updateConfig('orgName', e.target.value)} />
+            <input
+              className="form-input"
+              value={config.orgName || ''}
+              onChange={e => updateField('orgName', e.target.value)}
+              placeholder="PolarisCore"
+            />
           </div>
           <div className="form-group">
-            <label className="form-label">Dominio</label>
-            <input className="form-input" value={config.domain || ''} onChange={e => updateConfig('domain', e.target.value)} />
+            <label className="form-label">SSID</label>
+            <input
+              className="form-input"
+              value={config.ssid || ''}
+              onChange={e => updateField('ssid', e.target.value)}
+              placeholder="PolarisCore-Secure"
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">RADIUS IP</label>
+            <input
+              className="form-input"
+              value={config.radiusIp || ''}
+              onChange={e => updateField('radiusIp', e.target.value)}
+              style={{ fontFamily: 'var(--font-mono)' }}
+              placeholder="192.168.1.105"
+            />
           </div>
         </div>
       </div>
 
-      {/* UNIFI */}
+      {/* ── UNIFI ───────────────────────────────────────────────────────── */}
       <div className="section-title">UniFi</div>
       <div style={{
         background: 'var(--bg-surface)', border: '1px solid var(--border)',
@@ -234,20 +377,36 @@ export default function SettingsTab({ addLog }) {
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Controller URL</label>
-            <input className="form-input" value={config.unifiUrl || ''} onChange={e => updateConfig('unifiUrl', e.target.value)} style={{ fontFamily: 'var(--font-mono)' }} />
+            <input
+              className="form-input"
+              value={config.unifiUrl || ''}
+              onChange={e => updateField('unifiUrl', e.target.value)}
+              style={{ fontFamily: 'var(--font-mono)' }}
+              placeholder="https://192.168.10.1"
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Username</label>
-            <input className="form-input" value={config.unifiUser || ''} onChange={e => updateConfig('unifiUser', e.target.value)} />
+            <input
+              className="form-input"
+              value={config.unifiUser || ''}
+              onChange={e => updateField('unifiUser', e.target.value)}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Password</label>
-            <input className="form-input" type="password" value={config.unifiPass || ''} onChange={e => updateConfig('unifiPass', e.target.value)} />
+            <input
+              className="form-input"
+              type="password"
+              value={config.unifiPass || ''}
+              onChange={e => updateField('unifiPass', e.target.value)}
+              autoComplete="off"
+            />
           </div>
         </div>
       </div>
 
-      {/* DEPLOY */}
+      {/* ── DEPLOY ──────────────────────────────────────────────────────── */}
       <div className="section-title">Deploy</div>
       <div style={{
         background: 'var(--bg-surface)', border: '1px solid var(--border)',
@@ -255,27 +414,49 @@ export default function SettingsTab({ addLog }) {
       }}>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Admin Password (Default Deploy)</label>
-            <input className="form-input" type="password" value={config.adminPass || ''} onChange={e => updateConfig('adminPass', e.target.value)} />
+            <label className="form-label">Dominio Default</label>
+            <input
+              className="form-input"
+              value={config.deployDomain || config.domain || ''}
+              onChange={e => updateField('deployDomain', e.target.value)}
+              placeholder="corp.example.com"
+            />
           </div>
           <div className="form-group">
-            <label className="form-label">Dominio Default</label>
-            <input className="form-input" value={config.deployDomain || config.domain || ''} onChange={e => updateConfig('deployDomain', e.target.value)} />
+            <label className="form-label">OU Default</label>
+            <input
+              className="form-input"
+              value={config.deployOu || ''}
+              onChange={e => updateField('deployOu', e.target.value)}
+              placeholder="OU=PC,DC=corp,DC=polariscore,DC=it"
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+            />
           </div>
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">OU Default</label>
-            <input className="form-input" value={config.deployOu || ''} onChange={e => updateConfig('deployOu', e.target.value)} placeholder="OU=PC,DC=corp,DC=polariscore,DC=it" />
+            <label className="form-label">DC IP</label>
+            <input
+              className="form-input"
+              value={config.deployDcIp || ''}
+              onChange={e => updateField('deployDcIp', e.target.value)}
+              placeholder="192.168.1.199"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            />
           </div>
           <div className="form-group">
-            <label className="form-label">DC IP</label>
-            <input className="form-input" value={config.deployDcIp || ''} onChange={e => updateConfig('deployDcIp', e.target.value)} placeholder="192.168.1.199" style={{ fontFamily: 'var(--font-mono)' }} />
+            <label className="form-label">Prefisso Nome PC</label>
+            <input
+              className="form-input"
+              value={config.pcNamePrefix || ''}
+              onChange={e => updateField('pcNamePrefix', e.target.value)}
+              placeholder="PC-"
+            />
           </div>
         </div>
       </div>
 
-      {/* INTERFACCIA */}
+      {/* ── INTERFACCIA ─────────────────────────────────────────────────── */}
       <div className="section-title">Interfaccia</div>
       <div style={{
         background: 'var(--bg-surface)', border: '1px solid var(--border)',
@@ -283,37 +464,61 @@ export default function SettingsTab({ addLog }) {
       }}>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Tema</label>
-            <select className="form-select" value={config.theme || 'dark'} onChange={e => updateConfig('theme', e.target.value)}>
-              <option value="dark">Dark</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Intervallo Refresh (secondi)</label>
-            <input className="form-input" type="number" value={config.refreshInterval || 10} onChange={e => updateConfig('refreshInterval', parseInt(e.target.value) || 10)} min={2} max={120} />
-          </div>
-          <div className="form-group">
             <label className="form-label">Log Level</label>
-            <select className="form-select" value={config.logLevel || 'info'} onChange={e => updateConfig('logLevel', e.target.value)}>
+            <select
+              className="form-select"
+              value={config.logLevel || 'info'}
+              onChange={e => updateField('logLevel', e.target.value)}
+            >
               <option value="debug">Debug</option>
               <option value="info">Info</option>
               <option value="warn">Warning</option>
               <option value="error">Error</option>
             </select>
           </div>
+          <div className="form-group">
+            <label className="form-label">Intervallo Auto-Refresh (secondi)</label>
+            <input
+              className="form-input"
+              type="number"
+              value={config.refreshInterval || 10}
+              onChange={e => updateField('refreshInterval', parseInt(e.target.value) || 10)}
+              min={2}
+              max={120}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Tema</label>
+            <select
+              className="form-select"
+              value={config.theme || 'dark'}
+              onChange={e => updateField('theme', e.target.value)}
+            >
+              <option value="dark">Dark</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* ── ACTION BUTTONS ──────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', gap: 8, padding: '16px 0',
         borderTop: '1px solid var(--border)', marginTop: 8,
         position: 'sticky', bottom: 0, background: 'var(--bg-primary)', zIndex: 1,
       }}>
-        <button className="btn primary" onClick={handleSave}>Salva</button>
-        <button className="btn amber" onClick={handleResetDefaults}>Ripristina Defaults</button>
-        <button className="btn" onClick={handleExport}>Esporta Config</button>
-        <button className="btn" onClick={handleImport}>Importa Config</button>
+        <button className="btn primary" onClick={handleSave} disabled={!dirty}>
+          Salva{dirty ? ' *' : ''}
+        </button>
+        <button className="btn amber" onClick={handleResetDefaults}>
+          Ripristina Defaults
+        </button>
+        <div style={{ flex: 1 }} />
+        <button className="btn outline" onClick={handleExport}>
+          Esporta Config
+        </button>
+        <button className="btn outline" onClick={handleImport}>
+          Importa Config
+        </button>
       </div>
     </div>
   );

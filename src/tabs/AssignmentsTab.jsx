@@ -5,11 +5,22 @@ import * as api from '../services/api';
 
 const STATUS_MAP = {
   pending: { label: 'In Attesa', color: 'muted' },
-  running: { label: 'In Esecuzione', color: 'blue' },
+  running: { label: 'In Esecuzione', color: 'amber' },
   completed: { label: 'Completato', color: 'green' },
   failed: { label: 'Fallito', color: 'red' },
-  paused: { label: 'In Pausa', color: 'amber' },
+  paused: { label: 'In Pausa', color: 'muted' },
+  done: { label: 'Completato', color: 'green' },
+  error: { label: 'Errore', color: 'red' },
   skipped: { label: 'Saltato', color: 'muted' },
+};
+
+const STEP_STATUS_MAP = {
+  pending: { label: 'In Attesa', color: 'var(--text-dim)', bg: 'var(--bg-surface2)' },
+  running: { label: 'In Esecuzione', color: 'var(--amber)', bg: 'rgba(245, 158, 11, 0.1)' },
+  done: { label: 'Completato', color: 'var(--green)', bg: 'rgba(16, 185, 129, 0.1)' },
+  completed: { label: 'Completato', color: 'var(--green)', bg: 'rgba(16, 185, 129, 0.1)' },
+  error: { label: 'Errore', color: 'var(--red)', bg: 'rgba(239, 68, 68, 0.1)' },
+  failed: { label: 'Fallito', color: 'var(--red)', bg: 'rgba(239, 68, 68, 0.1)' },
 };
 
 function renderStatus(v) {
@@ -38,8 +49,10 @@ const columns = [
   { key: 'workflow_nome', label: 'Workflow' },
   { key: 'status', label: 'Stato', width: 130, render: renderStatus },
   { key: 'progress', label: 'Progresso', width: 180, render: renderProgress },
-  { key: 'assigned_at', label: 'Assegnato', width: 160, render: (v) => v ? new Date(v).toLocaleString('it-IT') : '' },
-  { key: 'last_seen', label: 'Ultimo Check-in', width: 160, render: (v) => v ? new Date(v).toLocaleString('it-IT') : 'Mai' },
+  {
+    key: 'assigned_at', label: 'Creata', width: 160,
+    render: (v) => v ? new Date(v).toLocaleString('it-IT') : '',
+  },
 ];
 
 export default function AssignmentsTab({ addLog }) {
@@ -47,25 +60,36 @@ export default function AssignmentsTab({ addLog }) {
   const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [error, setError] = useState(false);
 
+  // Modals
   const [showAssign, setShowAssign] = useState(false);
-  const [showBulk, setShowBulk] = useState(false);
   const [showDetail, setShowDetail] = useState(null);
   const [detailData, setDetailData] = useState(null);
 
-  const [assignPc, setAssignPc] = useState('');
+  // Assign form - supports comma-separated bulk
+  const [assignPcNames, setAssignPcNames] = useState('');
   const [assignWfId, setAssignWfId] = useState('');
-  const [bulkPcs, setBulkPcs] = useState('');
-  const [bulkWfId, setBulkWfId] = useState('');
 
   const timerRef = useRef(null);
 
   const load = useCallback(async () => {
     try {
       const [pw, wf] = await Promise.all([api.getPcWorkflows(), api.getWorkflows()]);
-      setItems(Array.isArray(pw) ? pw : pw?.assignments || []);
+      const pwList = Array.isArray(pw) ? pw : pw?.assignments || [];
+      // Compute progress from steps if not provided by API
+      const enriched = pwList.map(item => {
+        if (typeof item.progress !== 'number' || item.progress === 0) {
+          // Will be computed when detail is loaded; use status as hint
+          if (item.status === 'completed') return { ...item, progress: 100 };
+        }
+        return item;
+      });
+      setItems(enriched);
       setWorkflows(Array.isArray(wf) ? wf : wf?.workflows || []);
+      setError(false);
     } catch (e) {
+      setError(true);
       addLog(`Errore caricamento assegnazioni: ${e.message}`, 'error');
     }
   }, [addLog]);
@@ -82,43 +106,44 @@ export default function AssignmentsTab({ addLog }) {
   }, [load]);
 
   const handleAssign = async () => {
-    if (!assignPc.trim() || !assignWfId) return;
-    try {
-      await api.createPcWorkflow({ pc_name: assignPc.trim(), workflow_id: parseInt(assignWfId) });
-      addLog(`Workflow assegnato a ${assignPc}`, 'success');
-      setShowAssign(false);
-      setAssignPc('');
-      setAssignWfId('');
-      await load();
-    } catch (e) {
-      addLog(`Errore assegnazione: ${e.message}`, 'error');
-    }
-  };
+    if (!assignPcNames.trim() || !assignWfId) return;
+    // Support comma-separated PC names for bulk assignment
+    const pcNames = assignPcNames.split(',').map(s => s.trim()).filter(Boolean);
+    if (pcNames.length === 0) return;
 
-  const handleBulkAssign = async () => {
-    if (!bulkPcs.trim() || !bulkWfId) return;
-    const pcNames = bulkPcs.split('\n').map(s => s.trim()).filter(Boolean);
     let ok = 0, fail = 0;
+    const errors = [];
     for (const pc of pcNames) {
       try {
-        await api.createPcWorkflow({ pc_name: pc, workflow_id: parseInt(bulkWfId) });
+        await api.createPcWorkflow({ pc_name: pc, workflow_id: parseInt(assignWfId) });
         ok++;
-      } catch {
+      } catch (e) {
         fail++;
+        errors.push(`${pc}: ${e.response?.data?.error || e.message}`);
       }
     }
-    addLog(`Assegnazione bulk: ${ok} ok, ${fail} errori`, ok > 0 ? 'success' : 'error');
-    setShowBulk(false);
-    setBulkPcs('');
-    setBulkWfId('');
+
+    if (ok > 0 && fail === 0) {
+      addLog(`Workflow assegnato a ${pcNames.length === 1 ? pcNames[0] : `${ok} PC`}`, 'success');
+    } else if (ok > 0) {
+      addLog(`Assegnazione: ${ok} ok, ${fail} errori`, 'warning');
+      errors.forEach(err => addLog(err, 'error'));
+    } else {
+      addLog(`Errore assegnazione: ${errors[0]}`, 'error');
+    }
+
+    setShowAssign(false);
+    setAssignPcNames('');
+    setAssignWfId('');
     await load();
   };
 
-  const handleDelete = async () => {
-    if (!selected || !confirm(`Eliminare l'assegnazione per "${selected.pc_name}"?`)) return;
+  const handleDelete = async (row) => {
+    const target = row || selected;
+    if (!target || !confirm(`Eliminare l'assegnazione per "${target.pc_name}"?`)) return;
     try {
-      await api.deletePcWorkflow(selected.id);
-      addLog(`Assegnazione eliminata per ${selected.pc_name}`, 'success');
+      await api.deletePcWorkflow(target.id);
+      addLog(`Assegnazione eliminata per ${target.pc_name}`, 'success');
       setSelected(null);
       await load();
     } catch (e) {
@@ -127,10 +152,12 @@ export default function AssignmentsTab({ addLog }) {
   };
 
   const openDetail = async (row) => {
-    setShowDetail(row);
+    const target = row || selected;
+    if (!target) return;
+    setShowDetail(target);
     setDetailData(null);
     try {
-      const data = await api.getPcWorkflow(row.id);
+      const data = await api.getPcWorkflow(target.id);
       setDetailData(data);
     } catch (e) {
       addLog(`Errore dettaglio: ${e.message}`, 'error');
@@ -144,9 +171,14 @@ export default function AssignmentsTab({ addLog }) {
     failed: items.filter(a => a.status === 'failed').length,
   };
 
-  const detailSteps = detailData?.steps || detailData?.assignment?.steps || [];
-  const detailHw = detailData?.hardware || detailData?.assignment?.hardware || null;
-  const detailLogs = detailData?.logs || detailData?.assignment?.logs || [];
+  const detailSteps = detailData?.steps || [];
+  const detailHw = detailData?.hardware || null;
+  const detailLog = detailData?.log || null;
+
+  // Compute step-based progress for detail view
+  const stepsTotal = detailSteps.length;
+  const stepsDone = detailSteps.filter(s => s.status === 'done' || s.status === 'completed').length;
+  const detailProgress = stepsTotal > 0 ? Math.round((stepsDone / stepsTotal) * 100) : 0;
 
   return (
     <div>
@@ -158,17 +190,30 @@ export default function AssignmentsTab({ addLog }) {
         </div>
         <div className="stat-card">
           <div className="stat-label">In Esecuzione</div>
-          <div className="stat-value" style={{ color: 'var(--accent)' }}>{stats.running}</div>
+          <div className="stat-value amber">{stats.running}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Completati</div>
           <div className="stat-value green">{stats.completed}</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Falliti</div>
-          <div className="stat-value red">{stats.failed}</div>
-        </div>
+        {stats.failed > 0 && (
+          <div className="stat-card">
+            <div className="stat-label">Falliti</div>
+            <div className="stat-value red">{stats.failed}</div>
+          </div>
+        )}
       </div>
+
+      {/* Error banner */}
+      {error && items.length === 0 && (
+        <div style={{
+          textAlign: 'center', padding: 32, color: 'var(--text-dim)', fontSize: 13,
+          background: 'var(--bg-surface)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)', marginBottom: 12,
+        }}>
+          Server non raggiungibile. I dati verranno caricati automaticamente quando il server torna online.
+        </div>
+      )}
 
       {/* DataGrid */}
       <DataGrid
@@ -178,43 +223,46 @@ export default function AssignmentsTab({ addLog }) {
         onRowClick={setSelected}
         onRowDoubleClick={openDetail}
         selectable
-        multiSelect
         emptyMessage="Nessuna assegnazione"
         contextMenu={[
-          { label: 'Dettaglio', icon: '\uD83D\uDD0D', onClick: openDetail },
+          { label: 'Dettagli', icon: '\uD83D\uDD0D', onClick: openDetail },
           { divider: true },
-          { label: 'Elimina', icon: '\uD83D\uDDD1', onClick: (row) => {
-            if (confirm(`Eliminare l'assegnazione per "${row.pc_name}"?`)) {
-              api.deletePcWorkflow(row.id).then(() => { addLog(`Eliminata: ${row.pc_name}`, 'success'); load(); })
-                .catch(e => addLog(`Errore: ${e.message}`, 'error'));
-            }
-          }},
+          { label: 'Elimina', icon: '\uD83D\uDDD1', onClick: handleDelete },
         ]}
         actions={
           <>
-            <button className="btn primary" onClick={() => setShowAssign(true)}>Assegna Workflow</button>
-            <button className="btn" onClick={() => setShowBulk(true)}>Assegnazione Multipla</button>
-            <button className="btn red" disabled={!selected} onClick={handleDelete}>{'\uD83D\uDDD1'} Elimina</button>
+            <button className="btn primary" onClick={() => setShowAssign(true)}>+ Nuova Assegnazione</button>
+            <button className="btn" onClick={() => openDetail(selected)} disabled={!selected}>{'\uD83D\uDD0D'} Dettagli</button>
+            <button className="btn red" disabled={!selected} onClick={() => handleDelete(selected)}>{'\uD83D\uDDD1'} Elimina</button>
             <button className="btn" onClick={() => { setLoading(true); load().finally(() => setLoading(false)); }}>{'\uD83D\uDD04'} Aggiorna</button>
           </>
         }
       />
 
-      {/* Assign Modal */}
+      {/* ═══ Assign Modal ═══ */}
       {showAssign && (
         <Modal
-          title="Assegna Workflow"
+          title="Nuova Assegnazione"
           onClose={() => setShowAssign(false)}
           footer={
             <>
               <button className="btn" onClick={() => setShowAssign(false)}>Annulla</button>
-              <button className="btn primary" onClick={handleAssign} disabled={!assignPc.trim() || !assignWfId}>Assegna</button>
+              <button className="btn primary" onClick={handleAssign} disabled={!assignPcNames.trim() || !assignWfId}>Assegna</button>
             </>
           }
         >
           <div className="form-group">
             <label className="form-label">Nome PC</label>
-            <input className="form-input" value={assignPc} onChange={e => setAssignPc(e.target.value)} placeholder="es. PC-DEPLOY-001" autoFocus />
+            <input
+              className="form-input"
+              value={assignPcNames}
+              onChange={e => setAssignPcNames(e.target.value)}
+              placeholder="PC-001, PC-002, PC-003"
+              autoFocus
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+              Separa con virgola per assegnazione multipla
+            </div>
           </div>
           <div className="form-group">
             <label className="form-label">Workflow</label>
@@ -228,41 +276,7 @@ export default function AssignmentsTab({ addLog }) {
         </Modal>
       )}
 
-      {/* Bulk Assign Modal */}
-      {showBulk && (
-        <Modal
-          title="Assegnazione Multipla"
-          onClose={() => setShowBulk(false)}
-          footer={
-            <>
-              <button className="btn" onClick={() => setShowBulk(false)}>Annulla</button>
-              <button className="btn primary" onClick={handleBulkAssign} disabled={!bulkPcs.trim() || !bulkWfId}>Assegna Tutti</button>
-            </>
-          }
-        >
-          <div className="form-group">
-            <label className="form-label">Nomi PC (uno per riga)</label>
-            <textarea
-              className="form-textarea"
-              value={bulkPcs}
-              onChange={e => setBulkPcs(e.target.value)}
-              placeholder={'PC-DEPLOY-001\nPC-DEPLOY-002\nPC-DEPLOY-003'}
-              style={{ minHeight: 120 }}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Workflow</label>
-            <select className="form-select" value={bulkWfId} onChange={e => setBulkWfId(e.target.value)}>
-              <option value="">-- Seleziona Workflow --</option>
-              {workflows.map(wf => (
-                <option key={wf.id} value={wf.id}>{wf.nome} (v{wf.versione || '1.0'})</option>
-              ))}
-            </select>
-          </div>
-        </Modal>
-      )}
-
-      {/* Detail Modal */}
+      {/* ═══ Detail Modal ═══ */}
       {showDetail && (
         <Modal
           title={`Dettaglio: ${showDetail.pc_name}`}
@@ -274,13 +288,17 @@ export default function AssignmentsTab({ addLog }) {
               <div className="section-title">Assegnazione</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: 13 }}>
                 <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>PC:</span>
-                <span>{showDetail.pc_name}</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{showDetail.pc_name}</span>
                 <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Workflow:</span>
-                <span>{showDetail.workflow_nome || 'N/D'}</span>
+                <span>{detailData?.workflow_nome || showDetail.workflow_nome || 'N/D'}</span>
                 <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Stato:</span>
-                <span>{renderStatus(showDetail.status)}</span>
+                <span>{renderStatus(detailData?.status || showDetail.status)}</span>
                 <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Progresso:</span>
-                <span>{Math.round(showDetail.progress || 0)}%</span>
+                <span>
+                  {detailData ? `${detailProgress}% (${stepsDone}/${stepsTotal} steps)` : `${Math.round(showDetail.progress || 0)}%`}
+                </span>
+                <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Assegnato:</span>
+                <span>{showDetail.assigned_at ? new Date(showDetail.assigned_at).toLocaleString('it-IT') : '-'}</span>
               </div>
             </div>
             {detailHw && (
@@ -291,63 +309,144 @@ export default function AssignmentsTab({ addLog }) {
                   {detailHw.ram && <><span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>RAM:</span><span>{detailHw.ram}</span></>}
                   {detailHw.disk && <><span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Disco:</span><span>{detailHw.disk}</span></>}
                   {detailHw.os && <><span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>OS:</span><span>{detailHw.os}</span></>}
+                  {detailHw.serial && <><span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Seriale:</span><span>{detailHw.serial}</span></>}
+                  {detailHw.model && <><span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Modello:</span><span>{detailHw.model}</span></>}
                 </div>
               </div>
             )}
           </div>
 
+          {/* Progress bar */}
+          {detailData && stepsTotal > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                <span>Progresso complessivo</span>
+                <span>{detailProgress}%</span>
+              </div>
+              <div className="progress-bar" style={{ height: 8 }}>
+                <div className={`progress-fill ${detailProgress >= 100 ? 'green' : ''}`} style={{ width: `${detailProgress}%` }} />
+              </div>
+            </div>
+          )}
+
           {/* Step Timeline */}
           {detailSteps.length > 0 && (
             <>
-              <div className="section-title">Timeline Steps</div>
-              <div className="wf-timeline" style={{ marginBottom: 16 }}>
+              <div className="section-title">Timeline Steps ({stepsDone}/{stepsTotal})</div>
+              <div style={{
+                background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', maxHeight: 400, overflowY: 'auto',
+              }}>
                 {detailSteps.map((step, i) => {
-                  let bubbleClass = 'pending';
-                  if (step.status === 'completed' || step.status === 'done') bubbleClass = 'done';
-                  else if (step.status === 'running') bubbleClass = 'running';
-                  else if (step.status === 'failed' || step.status === 'error') bubbleClass = 'error';
+                  const st = step.status || 'pending';
+                  const stepStyle = STEP_STATUS_MAP[st] || STEP_STATUS_MAP.pending;
+                  const isRunning = st === 'running';
+                  const isDone = st === 'done' || st === 'completed';
+                  const isError = st === 'error' || st === 'failed';
+
                   return (
-                    <React.Fragment key={step.id || i}>
-                      {i > 0 && <div className={`wf-connector ${bubbleClass === 'done' ? 'done' : ''}`} />}
-                      <div className="wf-step">
-                        <div className={`wf-bubble ${bubbleClass}`}>{i + 1}</div>
-                        <div className="wf-step-label">{step.nome || step.name || `Step ${i + 1}`}</div>
+                    <div key={step.step_id || i} style={{
+                      display: 'flex', alignItems: 'stretch', gap: 0,
+                      borderBottom: i < detailSteps.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                      background: stepStyle.bg,
+                    }}>
+                      {/* Left indicator */}
+                      <div style={{
+                        width: 4, flexShrink: 0,
+                        background: stepStyle.color,
+                        animation: isRunning ? 'pulse-bar 1.5s ease-in-out infinite' : 'none',
+                      }} />
+
+                      {/* Step number */}
+                      <div style={{
+                        width: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700, color: stepStyle.color, flexShrink: 0,
+                      }}>
+                        {isDone ? '\u2713' : isError ? '\u2717' : step.ordine || (i + 1)}
                       </div>
-                    </React.Fragment>
+
+                      {/* Content */}
+                      <div style={{ flex: 1, padding: '8px 12px 8px 0', minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>
+                            {step.nome || step.name || `Step ${i + 1}`}
+                          </span>
+                          {step.tipo && (
+                            <span style={{
+                              fontSize: 10, padding: '1px 6px', borderRadius: 3,
+                              background: 'var(--bg-surface3)', color: 'var(--text-dim)',
+                              fontFamily: 'var(--font-mono)',
+                            }}>
+                              {step.tipo}
+                            </span>
+                          )}
+                          <span style={{ marginLeft: 'auto', fontSize: 11, color: stepStyle.color, fontWeight: 500 }}>
+                            {(STEP_STATUS_MAP[st] || { label: st }).label}
+                          </span>
+                        </div>
+
+                        {/* Timestamps */}
+                        {step.timestamp && (
+                          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                            {new Date(step.timestamp).toLocaleString('it-IT')}
+                            {step.elapsed_sec > 0 && ` (${step.elapsed_sec}s)`}
+                          </div>
+                        )}
+
+                        {/* Log/output snippet */}
+                        {step.log && (
+                          <div style={{
+                            fontSize: 10, color: isError ? 'var(--red)' : 'var(--text-muted)',
+                            marginTop: 4, fontFamily: 'var(--font-mono)',
+                            maxHeight: 40, overflow: 'hidden', textOverflow: 'ellipsis',
+                            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                          }}>
+                            {String(step.log).slice(0, 200)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
             </>
           )}
 
-          {/* Log output */}
-          {detailLogs.length > 0 && (
+          {/* Full log output */}
+          {detailLog && (
             <>
-              <div className="section-title">Log Output</div>
+              <div className="section-title" style={{ marginTop: 16 }}>Log Output</div>
               <div style={{
                 background: 'var(--bg-primary)', border: '1px solid var(--border)',
                 borderRadius: 'var(--radius)', padding: 12, maxHeight: 200, overflowY: 'auto',
                 fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
               }}>
-                {detailLogs.map((log, i) => (
-                  <div key={i} style={{ padding: '1px 0' }}>
-                    {log.timestamp && <span style={{ color: 'var(--text-dim)', marginRight: 8 }}>{new Date(log.timestamp).toLocaleTimeString('it-IT')}</span>}
-                    <span style={{ color: log.level === 'error' ? 'var(--red)' : log.level === 'warn' ? 'var(--amber)' : 'var(--text-muted)' }}>
-                      {log.message || log.text || JSON.stringify(log)}
-                    </span>
-                  </div>
-                ))}
+                {detailLog}
               </div>
             </>
           )}
 
-          {detailSteps.length === 0 && detailLogs.length === 0 && !detailHw && (
+          {!detailData && (
+            <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-dim)', fontSize: 12 }}>
+              Caricamento dettagli...
+            </div>
+          )}
+
+          {detailData && detailSteps.length === 0 && !detailHw && !detailLog && (
             <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-dim)', fontSize: 12 }}>
               Nessun dettaglio aggiuntivo disponibile
             </div>
           )}
         </Modal>
       )}
+
+      <style>{`
+        @keyframes pulse-bar {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -301,6 +301,7 @@ const REFRESH_INTERVAL = 30000;
 
 export default function DashboardTab({ addLog, config, updateConfig, toast, serverOnline, onNavigate }) {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [lastCheck, setLastCheck] = useState(null);
   const [serverInfo, setServerInfo] = useState(null);
 
@@ -319,21 +320,37 @@ export default function DashboardTab({ addLog, config, updateConfig, toast, serv
   // -----------------------------------------------------------------------
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    if (silent) setRefreshing(true);
     const now = Date.now();
 
+    // PC Online -- from localStorage network scan cache
+    let currentPcOnline = 0;
     try {
-      // PC Online — from localStorage network scan cache
-      try {
-        const cached = localStorage.getItem('networkScanResults');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          const list = Array.isArray(parsed) ? parsed : parsed?.hosts || parsed?.results || [];
-          const onlineCount = list.filter(h => h.online !== false && h.status !== 'offline').length;
-          setPcOnline(onlineCount);
-        }
-      } catch { /* ignore parse errors */ }
+      const cached = localStorage.getItem('networkScanResults');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const list = Array.isArray(parsed) ? parsed : parsed?.hosts || parsed?.results || [];
+        currentPcOnline = list.filter(h => h.online !== false && h.status !== 'offline').length;
+        setPcOnline(currentPcOnline);
+      }
+    } catch { /* ignore parse errors */ }
 
-      // Parallel API calls
+    // Check if API is configured
+    if (!api.getBaseUrl()) {
+      setLastCheck(now);
+      setActiveDeploys(0);
+      setOpenCrs(0);
+      setWorkflowCount(0);
+      setActivities([]);
+      setFleet({ online: 0, deploying: 0, offline: 0, error: 0 });
+      setServerInfo(null);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    try {
+      // Parallel API calls via Promise.allSettled (graceful per-call failure)
       const results = await Promise.allSettled([
         api.getPcWorkflows(),
         api.getCrList(),
@@ -341,6 +358,24 @@ export default function DashboardTab({ addLog, config, updateConfig, toast, serv
         api.getVersion(),
         api.checkHealth(),
       ]);
+
+      // Track how many calls succeeded
+      const anySuccess = results.some(r => r.status === 'fulfilled');
+
+      // If ALL calls failed, server is likely offline -- reset everything
+      if (!anySuccess) {
+        setActiveDeploys(0);
+        setOpenCrs(0);
+        setWorkflowCount(0);
+        setActivities([]);
+        setFleet({ online: 0, deploying: 0, offline: 0, error: 0 });
+        setServerInfo(null);
+        setLastCheck(now);
+        if (!silent) addLog?.('Server non raggiungibile', 'error');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
 
       // --- PC Workflows (deploys) ---
       const deploysRaw = results[0].status === 'fulfilled' ? results[0].value : null;
@@ -426,20 +461,28 @@ export default function DashboardTab({ addLog, config, updateConfig, toast, serv
       });
       setActivities(acts.slice(0, 10));
 
-      // --- Fleet health ---
+      // --- Fleet health (use currentPcOnline from this closure, not stale state) ---
       setFleet({
-        online: pcOnline,
+        online: Math.max(0, currentPcOnline - running.length - failed.length),
         deploying: running.length,
-        offline: Math.max(0, pcOnline - running.length - failed.length),
+        offline: 0,
         error: failed.length,
       });
 
     } catch (e) {
-      if (!silent) addLog(`Errore caricamento dashboard: ${e.message}`, 'error');
+      // Unexpected top-level error
+      setActiveDeploys(0);
+      setOpenCrs(0);
+      setWorkflowCount(0);
+      setActivities([]);
+      setFleet({ online: 0, deploying: 0, offline: 0, error: 0 });
+      setServerInfo(null);
+      if (!silent) addLog?.(`Errore caricamento dashboard: ${e.message}`, 'error');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [addLog, pcOnline]);
+  }, [addLog]);
 
   // Initial load
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -448,6 +491,11 @@ export default function DashboardTab({ addLog, config, updateConfig, toast, serv
   useEffect(() => {
     timerRef.current = setInterval(() => fetchData(true), REFRESH_INTERVAL);
     return () => clearInterval(timerRef.current);
+  }, [fetchData]);
+
+  // Manual refresh handler
+  const handleRefresh = useCallback(() => {
+    fetchData(false);
   }, [fetchData]);
 
   // -----------------------------------------------------------------------
@@ -489,15 +537,23 @@ export default function DashboardTab({ addLog, config, updateConfig, toast, serv
       }}>
         <span style={{ fontSize: 18, fontWeight: 700 }}>Dashboard</span>
         <span className="tag blue" style={{ fontSize: 10 }}>Panoramica</span>
+        {!serverOnline && (
+          <span className="tag red" style={{ fontSize: 10 }}>Server Offline</span>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-dim)' }}>
             <div style={{
-              width: 6, height: 6, borderRadius: '50%', background: 'var(--green)',
+              width: 6, height: 6, borderRadius: '50%',
+              background: serverOnline ? 'var(--green)' : 'var(--red)',
             }} />
             Auto-refresh 30s
           </div>
-          <button className="btn btn-sm" onClick={() => fetchData()}>
-            {'\uD83D\uDD04'} Aggiorna
+          <button
+            className="btn btn-sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Aggiorno...' : '\uD83D\uDD04 Aggiorna'}
           </button>
         </div>
       </div>
@@ -507,29 +563,29 @@ export default function DashboardTab({ addLog, config, updateConfig, toast, serv
         <StatCard
           icon={'\uD83D\uDCBB'}
           label="PC Online"
-          value={pcOnline}
+          value={serverOnline ? pcOnline : 0}
           color="green"
           borderColor="green"
         />
         <StatCard
           icon={'\uD83D\uDE80'}
           label="Deploy Attivi"
-          value={activeDeploys}
+          value={serverOnline ? activeDeploys : 0}
           color="accent"
           borderColor="accent"
         />
         <StatCard
           icon={'\uD83D\uDCCB'}
           label="CR Aperti"
-          value={openCrs}
+          value={serverOnline ? openCrs : 0}
           color="amber"
           borderColor="amber"
         />
         <StatCard
           icon={'\u2699\uFE0F'}
           label="Workflow"
-          value={workflowCount}
-          color="purple"
+          value={serverOnline ? workflowCount : 0}
+          color="accent"
           borderColor="accent"
         />
       </div>
@@ -557,7 +613,7 @@ export default function DashboardTab({ addLog, config, updateConfig, toast, serv
         </div>
 
         {/* 3. Activity Feed */}
-        <ActivityFeed activities={activities} />
+        <ActivityFeed activities={serverOnline ? activities : []} />
       </div>
     </div>
   );

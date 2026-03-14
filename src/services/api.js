@@ -125,7 +125,7 @@ export const reorderSteps = (wfId, steps) => api().put(`/api/workflows/${wfId}/s
 // ---------------------------------------------------------------------------
 
 export const getPcWorkflows = () => api().get('/api/pc-workflows').then((r) => r.data);
-export const getPcWorkflowHistory = () => api().get('/api/pc-workflows/history').then((r) => r.data);
+export const getPcWorkflowHistory = (pcName) => api().get('/api/pc-workflows/history', { params: { pc_name: pcName } }).then((r) => r.data);
 export const createPcWorkflow = (data) => api().post('/api/pc-workflows', data).then((r) => r.data);
 export const getPcWorkflow = (id) => api().get(`/api/pc-workflows/${id}`).then((r) => r.data);
 export const deletePcWorkflow = (id) => api().delete(`/api/pc-workflows/${id}`).then((r) => r.data);

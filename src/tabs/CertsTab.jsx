@@ -87,7 +87,7 @@ export default function CertsTab({ addLog }) {
   const [showQr, setShowQr] = useState(null);
   const qrCanvasRef = useRef(null);
 
-  const config = store.loadConfig();
+  const [config] = useState(() => store.loadConfig());
 
   const [genForm, setGenForm] = useState({
     mac: '',
