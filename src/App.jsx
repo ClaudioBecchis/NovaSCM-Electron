@@ -22,6 +22,7 @@ import SoftwareTab from './tabs/SoftwareTab';
 import PxeTab from './tabs/PxeTab';
 import ScriptsTab from './tabs/ScriptsTab';
 import SettingsTab from './tabs/SettingsTab';
+import AboutTab from './tabs/AboutTab';
 
 /* ── Placeholder for any future tabs ─────── */
 const PlaceholderTab = ({ name }) => (
@@ -29,30 +30,6 @@ const PlaceholderTab = ({ name }) => (
     <div className="icon">&#9881;</div>
     <div className="title">{name}</div>
     <div className="desc">Questo modulo e in fase di sviluppo.</div>
-  </div>
-);
-
-const AboutTab = () => (
-  <div style={{ padding: 40, textAlign: 'center' }}>
-    <div style={{
-      fontSize: 48,
-      fontFamily: 'var(--font-mono)',
-      fontWeight: 700,
-      color: 'var(--accent)',
-      marginBottom: 8,
-    }}>
-      N
-    </div>
-    <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>NovaSCM</div>
-    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>
-      v3.1.0-alpha.1 — Electron Edition
-    </div>
-    <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
-      Enterprise Deployment &amp; Asset Management<br />
-      SCCM-like change request workflows, PXE boot,<br />
-      network scanning, and certificate management.<br /><br />
-      &copy; 2026 PolarisCore
-    </div>
   </div>
 );
 
