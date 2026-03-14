@@ -334,6 +334,92 @@ ipcMain.handle('net:arpTable', () => {
 });
 
 // ============================================================================
+// IPC Handlers — Network: Wake-on-LAN
+// ============================================================================
+ipcMain.handle('net:wol', (_event, macAddress) => {
+  return new Promise((resolve, reject) => {
+    const dgram = require('dgram');
+
+    // Normalize MAC: remove separators
+    const mac = macAddress.replace(/[:\-]/g, '');
+    if (mac.length !== 12 || !/^[0-9a-fA-F]{12}$/.test(mac)) {
+      return reject(new Error(`MAC address non valido: ${macAddress}`));
+    }
+
+    // Build magic packet: 6x 0xFF + 16x MAC bytes
+    const macBytes = Buffer.from(mac, 'hex');
+    const magicPacket = Buffer.alloc(6 + 16 * 6);
+    // Fill first 6 bytes with 0xFF
+    for (let i = 0; i < 6; i++) magicPacket[i] = 0xff;
+    // Repeat MAC 16 times
+    for (let i = 0; i < 16; i++) {
+      macBytes.copy(magicPacket, 6 + i * 6);
+    }
+
+    const client = dgram.createSocket('udp4');
+    client.bind(() => {
+      client.setBroadcast(true);
+      client.send(magicPacket, 0, magicPacket.length, 9, '255.255.255.255', (err) => {
+        client.close();
+        if (err) {
+          reject(err);
+        } else {
+          resolve({ success: true, mac: macAddress });
+        }
+      });
+    });
+  });
+});
+
+// ============================================================================
+// IPC Handlers — Network: Traceroute
+// ============================================================================
+ipcMain.handle('net:traceroute', (_event, host) => {
+  return new Promise((resolve) => {
+    // Validate host (basic IP/hostname check)
+    if (!/^[\w.\-:]+$/.test(host)) {
+      resolve({ success: false, error: 'Host non valido', hops: [] });
+      return;
+    }
+
+    const cmd = process.platform === 'win32'
+      ? `tracert -d -w 1000 -h 30 ${host}`
+      : `traceroute -n -w 1 -m 30 ${host}`;
+
+    exec(cmd, { timeout: 60000 }, (error, stdout, stderr) => {
+      const hops = [];
+      const lines = stdout ? stdout.split('\n') : [];
+
+      for (const line of lines) {
+        // Windows tracert format: "  1    <1 ms    <1 ms    <1 ms  192.168.10.1"
+        // or "  1     2 ms     1 ms     1 ms  192.168.10.1"
+        // or "  2     *        *        *     Request timed out."
+        const hopMatch = line.match(
+          /^\s*(\d+)\s+([\d<*]+\s*ms|[*])\s+([\d<*]+\s*ms|[*])\s+([\d<*]+\s*ms|[*])\s+([\d.]+|Request timed out\.?|\*)/
+        );
+        if (hopMatch) {
+          const parseMs = (s) => {
+            if (!s || s === '*') return null;
+            const num = s.replace(/[<\s]|ms/g, '');
+            const val = parseInt(num, 10);
+            return isNaN(val) ? null : val;
+          };
+          hops.push({
+            hop: parseInt(hopMatch[1], 10),
+            ip: hopMatch[5].startsWith('Request') ? '*' : hopMatch[5],
+            rtt1: parseMs(hopMatch[2]),
+            rtt2: parseMs(hopMatch[3]),
+            rtt3: parseMs(hopMatch[4]),
+          });
+        }
+      }
+
+      resolve({ success: true, hops, raw: stdout || '' });
+    });
+  });
+});
+
+// ============================================================================
 // IPC Handlers — Clipboard
 // ============================================================================
 ipcMain.handle('clipboard:copy', (_event, text) => {
