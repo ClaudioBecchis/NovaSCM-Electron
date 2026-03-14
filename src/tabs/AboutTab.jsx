@@ -111,7 +111,7 @@ export default function AboutTab({ config }) {
       <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>
         NovaSCM{' '}
         <span style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: 20 }}>
-          v3.1.0-alpha.2
+          v3.1.0
         </span>
       </div>
 

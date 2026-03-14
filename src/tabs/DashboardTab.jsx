@@ -219,7 +219,7 @@ function ActivityFeed({ activities }) {
 function QuickActions({ onNavigate }) {
   const actions = [
     { label: 'Nuovo CR', icon: '\uD83D\uDCDD', tab: 'cr', variant: 'primary' },
-    { label: 'Scan Rete', icon: '\uD83D\uDD0D', tab: 'network', variant: 'outline' },
+    { label: 'Scan Rete', icon: '\uD83D\uDD0D', tab: 'rete', variant: 'outline' },
     { label: 'Assegna Workflow', icon: '\u2699\uFE0F', tab: 'assignments', variant: 'outline' },
   ];
 
