@@ -53,9 +53,9 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
   const handleSave = useCallback(() => {
     const toSave = { ...config };
 
-    // Convert scanNetworks from textarea string to array
-    if (typeof toSave.scanNetworks === 'string') {
-      toSave.scanNetworks = toSave.scanNetworks.split('\n').map(s => s.trim()).filter(Boolean);
+    // Ensure scanNetworks is stored as newline-separated string
+    if (Array.isArray(toSave.scanNetworks)) {
+      toSave.scanNetworks = toSave.scanNetworks.join('\n');
     }
 
     // Persist to localStorage
@@ -104,19 +104,16 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
   // -----------------------------------------------------------------------
   const handleExport = useCallback(() => {
     const exportData = { ...config };
-    // Ensure arrays are arrays for export
-    if (typeof exportData.scanNetworks === 'string') {
-      exportData.scanNetworks = exportData.scanNetworks.split('\n').map(s => s.trim()).filter(Boolean);
-    }
+    // scanNetworks is already a newline-separated string, keep as-is for export
     const json = JSON.stringify(exportData, null, 2);
 
-    if (window.electronAPI?.saveFile) {
-      window.electronAPI.saveFile({
+    if (window.electronAPI?.dialog?.saveFile) {
+      window.electronAPI.dialog.saveFile({
         defaultPath: 'novascm-config.json',
         filters: [{ name: 'JSON', extensions: ['json'] }],
-      }).then(path => {
-        if (path) {
-          window.electronAPI.writeFile(path, json);
+      }).then(filePath => {
+        if (filePath) {
+          window.electronAPI.fs.writeFile(filePath, json);
           if (toast) toast('Configurazione esportata', 'success');
           else addLog?.('Configurazione esportata', 'success');
         }
@@ -161,9 +158,19 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
       }
     };
 
-    if (window.electronAPI?.openFile) {
-      window.electronAPI.openFile().then(content => {
-        if (content) doImport(content);
+    if (window.electronAPI?.dialog?.openFile) {
+      window.electronAPI.dialog.openFile({
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      }).then(async (filePath) => {
+        if (filePath) {
+          const result = await window.electronAPI.fs.readFile(filePath, 'utf-8');
+          if (result?.success && result.data) {
+            doImport(result.data);
+          } else if (result?.error) {
+            if (toast) toast(`Errore lettura file: ${result.error}`, 'error');
+            else addLog?.(`Errore lettura file: ${result.error}`, 'error');
+          }
+        }
       }).catch(() => {});
     } else {
       const input = document.createElement('input');
@@ -218,10 +225,8 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
   // Display helpers
   // -----------------------------------------------------------------------
 
-  // Convert scanNetworks array to newline-separated string for textarea
-  const scanNets = Array.isArray(config.scanNetworks)
-    ? config.scanNetworks.join('\n')
-    : (config.scanNetworks || '');
+  // scanNetworks is stored as newline-separated string
+  const scanNets = config.scanNetworks || '';
 
   // -----------------------------------------------------------------------
   // Render
@@ -341,8 +346,8 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             <label className="form-label">Organizzazione</label>
             <input
               className="form-input"
-              value={config.orgName || ''}
-              onChange={e => updateField('orgName', e.target.value)}
+              value={config.certOrg || ''}
+              onChange={e => updateField('certOrg', e.target.value)}
               placeholder="PolarisCore"
             />
           </div>
@@ -350,8 +355,8 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             <label className="form-label">SSID</label>
             <input
               className="form-input"
-              value={config.ssid || ''}
-              onChange={e => updateField('ssid', e.target.value)}
+              value={config.certSsid || ''}
+              onChange={e => updateField('certSsid', e.target.value)}
               placeholder="PolarisCore-Secure"
             />
           </div>
@@ -359,8 +364,8 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             <label className="form-label">RADIUS IP</label>
             <input
               className="form-input"
-              value={config.radiusIp || ''}
-              onChange={e => updateField('radiusIp', e.target.value)}
+              value={config.certRadiusIp || ''}
+              onChange={e => updateField('certRadiusIp', e.target.value)}
               style={{ fontFamily: 'var(--font-mono)' }}
               placeholder="192.168.1.105"
             />
@@ -417,8 +422,8 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             <label className="form-label">Dominio Default</label>
             <input
               className="form-input"
-              value={config.deployDomain || config.domain || ''}
-              onChange={e => updateField('deployDomain', e.target.value)}
+              value={config.defaultDomain || ''}
+              onChange={e => updateField('defaultDomain', e.target.value)}
               placeholder="corp.example.com"
             />
           </div>
@@ -426,9 +431,9 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             <label className="form-label">OU Default</label>
             <input
               className="form-input"
-              value={config.deployOu || ''}
-              onChange={e => updateField('deployOu', e.target.value)}
-              placeholder="OU=PC,DC=corp,DC=polariscore,DC=it"
+              value={config.defaultOu || ''}
+              onChange={e => updateField('defaultOu', e.target.value)}
+              placeholder="OU=Computers,DC=corp,DC=polariscore,DC=it"
               style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
             />
           </div>
@@ -438,8 +443,8 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             <label className="form-label">DC IP</label>
             <input
               className="form-input"
-              value={config.deployDcIp || ''}
-              onChange={e => updateField('deployDcIp', e.target.value)}
+              value={config.defaultDcIp || ''}
+              onChange={e => updateField('defaultDcIp', e.target.value)}
               placeholder="192.168.1.199"
               style={{ fontFamily: 'var(--font-mono)' }}
             />
@@ -481,8 +486,8 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             <input
               className="form-input"
               type="number"
-              value={config.refreshInterval || 10}
-              onChange={e => updateField('refreshInterval', parseInt(e.target.value) || 10)}
+              value={config.autoRefresh || 30}
+              onChange={e => updateField('autoRefresh', parseInt(e.target.value) || 30)}
               min={2}
               max={120}
             />

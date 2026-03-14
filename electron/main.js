@@ -433,6 +433,14 @@ ipcMain.handle('app:getVersion', () => app.getVersion());
 ipcMain.handle('app:getPlatform', () => process.platform);
 ipcMain.handle('app:getArch', () => process.arch);
 ipcMain.handle('app:getUserDataPath', () => app.getPath('userData'));
+ipcMain.handle('app:getInfo', () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  platform: process.platform,
+  arch: process.arch,
+}));
 
 // ============================================================================
 // IPC Handlers — Notifications

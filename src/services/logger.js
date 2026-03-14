@@ -38,38 +38,38 @@ function addEntry(msg, level) {
   consoleFn(`[${level.toUpperCase()}] ${msg}`);
 }
 
-function log(msg, level = 'info') {
+export function log(msg, level = 'info') {
   addEntry(msg, level);
 }
 
-function info(msg) {
+export function info(msg) {
   addEntry(msg, 'info');
 }
 
-function success(msg) {
+export function success(msg) {
   addEntry(msg, 'success');
 }
 
-function warn(msg) {
+export function warn(msg) {
   addEntry(msg, 'warn');
 }
 
-function error(msg) {
+export function error(msg) {
   addEntry(msg, 'error');
 }
 
-function getEntries(limit) {
+export function getEntries(limit) {
   if (limit && limit > 0) {
     return entries.slice(-limit);
   }
   return [...entries];
 }
 
-function clear() {
+export function clear() {
   entries.length = 0;
 }
 
-function onEntry(callback) {
+export function onEntry(callback) {
   if (typeof callback === 'function') {
     listeners.push(callback);
   }
@@ -82,7 +82,7 @@ function onEntry(callback) {
   };
 }
 
-function exportLog() {
+export function exportLog() {
   return entries
     .map((e) => `[${e.ts}] [${e.level.toUpperCase().padEnd(7)}] ${e.msg}`)
     .join('\n');

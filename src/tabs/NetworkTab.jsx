@@ -286,7 +286,8 @@ export default function NetworkTab({ addLog }) {
     // Get ARP table once
     let arpMap = {};
     try {
-      const arpEntries = await api.arpTable();
+      const arpResult = await api.arpTable();
+      const arpEntries = arpResult?.entries || arpResult || [];
       arpEntries.forEach(e => { arpMap[e.ip] = e.mac; });
     } catch { /* ARP table not available */ }
 
@@ -304,14 +305,15 @@ export default function NetworkTab({ addLog }) {
         for (let i = batch; i < Math.min(batch + 15, 255); i++) {
           const ip = `${base}.${i}`;
           promises.push(
-            api.ping(ip).then(async alive => {
-              if (!alive) return null;
+            api.ping(ip).then(async result => {
+              if (!result || !result.alive) return null;
 
               // Refresh ARP after ping
               let mac = arpMap[ip] || '';
               if (!mac) {
                 try {
-                  const freshArp = await api.arpTable();
+                  const freshArpResult = await api.arpTable();
+                  const freshArp = freshArpResult?.entries || freshArpResult || [];
                   freshArp.forEach(e => { arpMap[e.ip] = e.mac; });
                   mac = arpMap[ip] || '';
                 } catch { /* ignore */ }
@@ -322,7 +324,7 @@ export default function NetworkTab({ addLog }) {
               // Port scan
               const openPorts = [];
               const portChecks = COMMON_PORTS.map(p =>
-                api.portScan(ip, p).then(open => { if (open) openPorts.push(p); }).catch(() => {})
+                api.portScan(ip, p).then(result => { if (result?.open) openPorts.push(p); }).catch(() => {})
               );
               await Promise.all(portChecks);
 

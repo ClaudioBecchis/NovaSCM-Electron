@@ -114,9 +114,7 @@ export default function PxeTab({ addLog, config, toast, serverOnline }) {
   // ── Toaster helper (use toast if available, fallback to addLog) ────────────
   const notify = useCallback((msg, level = 'info') => {
     if (toast) {
-      if (level === 'error') toast.error(msg);
-      else if (level === 'success') toast.success(msg);
-      else toast.info?.(msg) || toast(msg);
+      toast(msg, level);
     }
     addLog?.(msg, level);
   }, [toast, addLog]);
