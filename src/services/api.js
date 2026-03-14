@@ -74,6 +74,8 @@ function api() {
 // Health
 // ---------------------------------------------------------------------------
 
+export { configure, getBaseUrl, getApiKey };
+
 export const checkHealth = () => api().get('/health').then((r) => r.data);
 
 // ---------------------------------------------------------------------------

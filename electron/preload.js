@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ping: (host, timeout) => ipcRenderer.invoke('net:ping', host, timeout),
     portScan: (host, port, timeout) => ipcRenderer.invoke('net:portScan', host, port, timeout),
     arpTable: () => ipcRenderer.invoke('net:arpTable'),
+    wol: (mac) => ipcRenderer.invoke('net:wol', mac),
+    traceroute: (host) => ipcRenderer.invoke('net:traceroute', host),
   },
 
   // --- Clipboard ---

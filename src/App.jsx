@@ -5,7 +5,12 @@ import api from './services/api';
 import store from './services/store';
 import logger from './services/logger';
 
+/* ── Components ─────────────────────────────────────────── */
+import ErrorBoundary from './components/ErrorBoundary';
+import SearchOverlay from './components/SearchOverlay';
+
 /* ── Tab Components ──────────────────────────────────────── */
+import DashboardTab from './tabs/DashboardTab';
 import NetworkTab from './tabs/NetworkTab';
 import PcsTab from './tabs/PcsTab';
 import CrTab from './tabs/CrTab';
@@ -15,6 +20,7 @@ import DeployTab from './tabs/DeployTab';
 import CertsTab from './tabs/CertsTab';
 import SoftwareTab from './tabs/SoftwareTab';
 import PxeTab from './tabs/PxeTab';
+import ScriptsTab from './tabs/ScriptsTab';
 import SettingsTab from './tabs/SettingsTab';
 
 /* ── Placeholder for any future tabs ─────── */
@@ -39,7 +45,7 @@ const AboutTab = () => (
     </div>
     <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>NovaSCM</div>
     <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>
-      v3.0.0 — Electron Edition
+      v3.1.0-alpha.1 — Electron Edition
     </div>
     <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
       Enterprise Deployment &amp; Asset Management<br />
@@ -52,6 +58,12 @@ const AboutTab = () => (
 
 /* ── Navigation Definitions ──────────────────────────────── */
 const NAV_SECTIONS = [
+  {
+    label: 'OVERVIEW',
+    items: [
+      { id: 'dashboard',   icon: '\uD83D\uDCCA', label: 'Dashboard' },
+    ],
+  },
   {
     label: 'ASSET',
     items: [
@@ -74,6 +86,7 @@ const NAV_SECTIONS = [
     label: 'INFRASTRUTTURA',
     items: [
       { id: 'pxe', icon: '\uD83D\uDDA5\uFE0F', label: 'PXE Boot' },
+      { id: 'scripts', icon: '\uD83D\uDCDC', label: 'Script Library' },
     ],
   },
   {
@@ -87,6 +100,7 @@ const NAV_SECTIONS = [
 
 /* Tab ID -> Component mapping */
 const TAB_COMPONENTS = {
+  dashboard:   DashboardTab,
   rete:        NetworkTab,
   certificati: CertsTab,
   software:    SoftwareTab,
@@ -96,6 +110,7 @@ const TAB_COMPONENTS = {
   assignments: AssignmentsTab,
   deploy:      DeployTab,
   pxe:         PxeTab,
+  scripts:     ScriptsTab,
   settings:    SettingsTab,
   about:       AboutTab,
 };
@@ -116,7 +131,8 @@ function AppInner() {
   const { toast } = useToast();
 
   /* ── Core State ────────────────────────────────────────── */
-  const [activeTab, setActiveTab]             = useState('rete');
+  const [activeTab, setActiveTab]             = useState('dashboard');
+  const [showSearch, setShowSearch]           = useState(false);
   const [ribbonTab, setRibbonTab]             = useState('Home');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showLog, setShowLog]                 = useState(false);
@@ -201,7 +217,7 @@ function AppInner() {
     setConfig(cfg);
     api.configure(cfg.apiUrl, cfg.apiKey);
 
-    addLog('NovaSCM v3.0.0 avviato');
+    addLog('NovaSCM v3.1.0-alpha.1 avviato');
     addLog('Server configurato: ' + cfg.apiUrl);
 
     // Immediate health check, then poll every 30 seconds
@@ -245,6 +261,12 @@ function AppInner() {
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
         setShowLog((v) => !v);
+        return;
+      }
+      /* Ctrl+K — search overlay */
+      if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch((v) => !v);
         return;
       }
     };
@@ -458,7 +480,7 @@ function AppInner() {
         </span>
 
         {/* Version */}
-        <span className="titlebar-version">v3.0.0</span>
+        <span className="titlebar-version">v3.1.0-alpha.1</span>
 
         {/* Spacer (already handled by margin-right:auto on version) */}
 
@@ -582,6 +604,7 @@ function AppInner() {
               setConfig={updateConfig}
               toast={toast}
               serverOnline={serverOnline}
+              onNavigate={(tabId) => setActiveTab(tabId)}
             />
           </div>
 
@@ -723,6 +746,26 @@ function AppInner() {
           </span>
         </span>
       </div>
+
+      {/* ── Search Overlay (Ctrl+K) ───────────────────────── */}
+      <SearchOverlay
+        visible={showSearch}
+        onClose={() => setShowSearch(false)}
+        onAction={(id) => {
+          setShowSearch(false);
+          switch (id) {
+            case 'nuovo-cr': setActiveTab('cr'); break;
+            case 'scan-rete': setActiveTab('rete'); break;
+            case 'test-connessione': checkServerHealth(); break;
+            case 'esporta-log': exportLogs(); break;
+            case 'toggle-log': setShowLog((v) => !v); break;
+            case 'toggle-sidebar': setSidebarCollapsed((v) => !v); break;
+            default:
+              if (TAB_COMPONENTS[id]) setActiveTab(id);
+              break;
+          }
+        }}
+      />
     </>
   );
 }
@@ -734,10 +777,12 @@ function AppInner() {
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
   return (
-    <ToastContainer>
-      <ConfirmProvider>
-        <AppInner />
-      </ConfirmProvider>
-    </ToastContainer>
+    <ErrorBoundary>
+      <ToastContainer>
+        <ConfirmProvider>
+          <AppInner />
+        </ConfirmProvider>
+      </ToastContainer>
+    </ErrorBoundary>
   );
 }

@@ -58,6 +58,13 @@ const columns = [
 ];
 
 const SCAN_RESULTS_KEY = 'novascm-scan-results';
+const AUTOSCAN_KEY = 'novascm-autoscan';
+const AUTOSCAN_INTERVALS = [
+  { label: '5 min', value: 5 },
+  { label: '15 min', value: 15 },
+  { label: '30 min', value: 30 },
+  { label: '60 min', value: 60 },
+];
 
 function saveScanResults(devices) {
   try {
@@ -102,6 +109,15 @@ export default function NetworkTab({ addLog }) {
   const [detailDevice, setDetailDevice] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [lastScanTime, setLastScanTime] = useState(null);
+  const [tracerouteModal, setTracerouteModal] = useState(null);
+  const [tracerouteLoading, setTracerouteLoading] = useState(false);
+  const [speedTestModal, setSpeedTestModal] = useState(false);
+  const [speedTestResults, setSpeedTestResults] = useState(null);
+  const [speedTestRunning, setSpeedTestRunning] = useState(false);
+  const [speedTestPhase, setSpeedTestPhase] = useState('');
+  const [autoScanEnabled, setAutoScanEnabled] = useState(false);
+  const [autoScanInterval, setAutoScanInterval] = useState(15);
+  const autoScanTimerRef = useRef(null);
   const contextRef = useRef(null);
 
   // Load subnets from config and previous scan results
@@ -123,6 +139,130 @@ export default function NetworkTab({ addLog }) {
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, []);
+
+  // Load auto-scan preference
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(AUTOSCAN_KEY);
+      if (saved) {
+        const pref = JSON.parse(saved);
+        setAutoScanEnabled(pref.enabled || false);
+        setAutoScanInterval(pref.interval || 15);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Keep a ref to scanning state so the interval callback doesn't need it as a dep
+  const scanningRef = useRef(scanning);
+  useEffect(() => { scanningRef.current = scanning; }, [scanning]);
+
+  // Auto-scan timer
+  useEffect(() => {
+    if (autoScanTimerRef.current) {
+      clearInterval(autoScanTimerRef.current);
+      autoScanTimerRef.current = null;
+    }
+    if (autoScanEnabled && autoScanInterval > 0) {
+      autoScanTimerRef.current = setInterval(() => {
+        if (!scanningRef.current) {
+          addLog(`Auto-scan avviata (ogni ${autoScanInterval} min)`, 'info');
+          scan();
+        }
+      }, autoScanInterval * 60 * 1000);
+    }
+    return () => {
+      if (autoScanTimerRef.current) {
+        clearInterval(autoScanTimerRef.current);
+      }
+    };
+  }, [autoScanEnabled, autoScanInterval, scan, addLog]);
+
+  // Save auto-scan preference
+  const toggleAutoScan = (enabled) => {
+    setAutoScanEnabled(enabled);
+    try {
+      localStorage.setItem(AUTOSCAN_KEY, JSON.stringify({ enabled, interval: autoScanInterval }));
+    } catch { /* ignore */ }
+  };
+
+  const updateAutoScanInterval = (interval) => {
+    setAutoScanInterval(interval);
+    try {
+      localStorage.setItem(AUTOSCAN_KEY, JSON.stringify({ enabled: autoScanEnabled, interval }));
+    } catch { /* ignore */ }
+  };
+
+  // Wake-on-LAN handler
+  const sendWol = async (device) => {
+    if (!device.mac) {
+      addLog(`WoL fallito: MAC address non disponibile per ${device.ip}`, 'error');
+      return;
+    }
+    try {
+      await window.electronAPI.net.wol(device.mac);
+      addLog(`WoL magic packet inviato a ${device.mac} (${device.ip})`, 'success');
+    } catch (err) {
+      addLog(`WoL fallito per ${device.mac}: ${err.message || err}`, 'error');
+    }
+  };
+
+  // Traceroute handler
+  const runTraceroute = async (device) => {
+    setTracerouteModal({ ip: device.ip, hops: [], raw: '' });
+    setTracerouteLoading(true);
+    try {
+      const result = await window.electronAPI.net.traceroute(device.ip);
+      setTracerouteModal({ ip: device.ip, hops: result.hops || [], raw: result.raw || '' });
+    } catch (err) {
+      addLog(`Traceroute fallito per ${device.ip}: ${err.message || err}`, 'error');
+      setTracerouteModal(null);
+    } finally {
+      setTracerouteLoading(false);
+    }
+  };
+
+  // Speed test handler
+  const runSpeedTest = async () => {
+    setSpeedTestModal(true);
+    setSpeedTestRunning(true);
+    setSpeedTestResults(null);
+    const results = { download: null, upload: null };
+
+    try {
+      // Download test: 10MB from Cloudflare
+      setSpeedTestPhase('Download in corso...');
+      const dlStart = performance.now();
+      const dlResponse = await fetch('https://speed.cloudflare.com/__down?bytes=10000000');
+      await dlResponse.arrayBuffer();
+      const dlEnd = performance.now();
+      const dlTimeSeconds = (dlEnd - dlStart) / 1000;
+      const dlBits = 10000000 * 8;
+      results.download = (dlBits / dlTimeSeconds / 1000000).toFixed(2);
+
+      // Upload test: 5MB to Cloudflare
+      setSpeedTestPhase('Upload in corso...');
+      const uploadData = new Uint8Array(5000000);
+      crypto.getRandomValues(uploadData);
+      const ulStart = performance.now();
+      await fetch('https://speed.cloudflare.com/__up', {
+        method: 'POST',
+        body: uploadData,
+      });
+      const ulEnd = performance.now();
+      const ulTimeSeconds = (ulEnd - ulStart) / 1000;
+      const ulBits = 5000000 * 8;
+      results.upload = (ulBits / ulTimeSeconds / 1000000).toFixed(2);
+
+      setSpeedTestResults(results);
+      addLog(`Speed test completato: Download ${results.download} Mbps, Upload ${results.upload} Mbps`, 'success');
+    } catch (err) {
+      addLog(`Speed test fallito: ${err.message || err}`, 'error');
+      setSpeedTestResults({ error: err.message || 'Errore durante il test' });
+    } finally {
+      setSpeedTestRunning(false);
+      setSpeedTestPhase('');
+    }
+  };
 
   const addSubnet = () => {
     setSubnets(prev => [...prev, '192.168.30.0/24']);
@@ -355,13 +495,41 @@ export default function NetworkTab({ addLog }) {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', paddingTop: 18 }}>
-          <button className="btn primary" onClick={scan} disabled={scanning || subnets.length === 0}>
-            {scanning ? '\u23F3 Scansione...' : '\uD83D\uDD0D Scansiona Rete'}
-          </button>
-          <button className="btn" onClick={() => exportCsv(devices)} disabled={devices.length === 0}>
-            {'\uD83D\uDCC4'} Esporta CSV
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end', paddingTop: 18 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="btn primary" onClick={scan} disabled={scanning || subnets.length === 0}>
+              {scanning ? '\u23F3 Scansione...' : '\uD83D\uDD0D Scansiona Rete'}
+            </button>
+            <button className="btn" onClick={() => exportCsv(devices)} disabled={devices.length === 0}>
+              {'\uD83D\uDCC4'} Esporta CSV
+            </button>
+            <button className="btn" onClick={runSpeedTest} disabled={speedTestRunning}>
+              {speedTestRunning ? '\u23F3 Test...' : '\uD83D\uDCF6'} Speed Test
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text-dim)' }}>
+              <input
+                type="checkbox"
+                checked={autoScanEnabled}
+                onChange={e => toggleAutoScan(e.target.checked)}
+                style={{ accentColor: 'var(--accent)' }}
+              />
+              Auto-scan ogni
+            </label>
+            <select
+              value={autoScanInterval}
+              onChange={e => updateAutoScanInterval(Number(e.target.value))}
+              style={{
+                background: 'var(--bg-primary)', color: 'var(--text)', border: '1px solid var(--border)',
+                borderRadius: 4, padding: '2px 6px', fontSize: 11, fontFamily: 'var(--font-mono)',
+              }}
+            >
+              {AUTOSCAN_INTERVALS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -468,6 +636,23 @@ export default function NetworkTab({ addLog }) {
               {'\uD83D\uDC27'} SSH
             </div>
           )}
+          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+          <div
+            style={{ padding: '6px 14px', cursor: 'pointer', color: 'var(--text)' }}
+            onMouseEnter={e => e.target.style.background = 'var(--bg-hover)'}
+            onMouseLeave={e => e.target.style.background = 'transparent'}
+            onClick={() => sendWol(contextMenu.device)}
+          >
+            {'\u26A1'} Wake-on-LAN
+          </div>
+          <div
+            style={{ padding: '6px 14px', cursor: 'pointer', color: 'var(--text)' }}
+            onMouseEnter={e => e.target.style.background = 'var(--bg-hover)'}
+            onMouseLeave={e => e.target.style.background = 'transparent'}
+            onClick={() => runTraceroute(contextMenu.device)}
+          >
+            {'\uD83D\uDDFA\uFE0F'} Traceroute
+          </div>
         </div>
       )}
 
@@ -553,7 +738,116 @@ export default function NetworkTab({ addLog }) {
                 {'\uD83D\uDC33'} Portainer (9000)
               </button>
             )}
+            <div style={{ height: 1, background: 'var(--border)', margin: '0 4px', alignSelf: 'stretch' }} />
+            <button className="btn amber" onClick={() => sendWol(detailDevice)} disabled={!detailDevice.mac}>
+              {'\u26A1'} Wake-on-LAN
+            </button>
+            <button className="btn" onClick={() => { setDetailDevice(null); runTraceroute(detailDevice); }}>
+              {'\uD83D\uDDFA\uFE0F'} Traceroute
+            </button>
           </div>
+        </Modal>
+      )}
+
+      {/* Traceroute Modal */}
+      {tracerouteModal && (
+        <Modal title={`Traceroute: ${tracerouteModal.ip}`} onClose={() => setTracerouteModal(null)} wide>
+          {tracerouteLoading ? (
+            <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-dim)' }}>
+              <div style={{ fontSize: 24, marginBottom: 12 }}>{'\u23F3'}</div>
+              <div>Traceroute in corso verso {tracerouteModal.ip}...</div>
+              <div style={{ fontSize: 11, marginTop: 4, color: 'var(--text-muted)' }}>Potrebbe richiedere fino a 30 secondi</div>
+            </div>
+          ) : (
+            <>
+              {tracerouteModal.hops.length > 0 ? (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--text-dim)', fontWeight: 600 }}>Hop</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--text-dim)', fontWeight: 600 }}>IP</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--text-dim)', fontWeight: 600 }}>RTT 1 (ms)</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--text-dim)', fontWeight: 600 }}>RTT 2 (ms)</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--text-dim)', fontWeight: 600 }}>RTT 3 (ms)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tracerouteModal.hops.map((hop, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '4px 10px', color: 'var(--accent)', fontWeight: 600 }}>{hop.hop}</td>
+                        <td style={{ padding: '4px 10px' }}>{hop.ip === '*' ? <span style={{ color: 'var(--text-muted)' }}>* (timeout)</span> : hop.ip}</td>
+                        <td style={{ padding: '4px 10px', textAlign: 'right' }}>{hop.rtt1 !== null ? hop.rtt1 : '*'}</td>
+                        <td style={{ padding: '4px 10px', textAlign: 'right' }}>{hop.rtt2 !== null ? hop.rtt2 : '*'}</td>
+                        <td style={{ padding: '4px 10px', textAlign: 'right' }}>{hop.rtt3 !== null ? hop.rtt3 : '*'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{ color: 'var(--text-dim)', padding: 16, textAlign: 'center' }}>
+                  Nessun hop rilevato. Output raw:
+                  <pre style={{ marginTop: 8, fontSize: 11, textAlign: 'left', whiteSpace: 'pre-wrap', background: 'var(--bg-primary)', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>
+                    {tracerouteModal.raw || '(vuoto)'}
+                  </pre>
+                </div>
+              )}
+            </>
+          )}
+        </Modal>
+      )}
+
+      {/* Speed Test Modal */}
+      {speedTestModal && (
+        <Modal title="Speed Test" onClose={() => { if (!speedTestRunning) setSpeedTestModal(false); }}>
+          {speedTestRunning ? (
+            <div style={{ textAlign: 'center', padding: 32 }}>
+              <div style={{ fontSize: 32, marginBottom: 16 }}>{'\uD83D\uDCF6'}</div>
+              <div style={{ color: 'var(--text)', fontSize: 14, marginBottom: 8 }}>{speedTestPhase}</div>
+              <div style={{ width: '100%', height: 6, background: 'var(--bg-primary)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  background: 'var(--accent)',
+                  borderRadius: 3,
+                  animation: 'speedtest-progress 1.5s ease-in-out infinite',
+                  width: '40%',
+                }} />
+              </div>
+              <style>{`
+                @keyframes speedtest-progress {
+                  0% { margin-left: 0; }
+                  50% { margin-left: 60%; }
+                  100% { margin-left: 0; }
+                }
+              `}</style>
+            </div>
+          ) : speedTestResults ? (
+            speedTestResults.error ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--red)' }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>{'\u274C'}</div>
+                <div>{speedTestResults.error}</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 24, justifyContent: 'center', padding: 24 }}>
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-dim)', marginBottom: 8 }}>Download</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>{speedTestResults.download}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Mbps</div>
+                </div>
+                <div style={{ width: 1, background: 'var(--border)' }} />
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-dim)', marginBottom: 8 }}>Upload</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{speedTestResults.upload}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Mbps</div>
+                </div>
+              </div>
+            )
+          ) : null}
+          {!speedTestRunning && speedTestResults && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+              <button className="btn primary" onClick={runSpeedTest}>Ripeti Test</button>
+              <button className="btn" onClick={() => setSpeedTestModal(false)}>Chiudi</button>
+            </div>
+          )}
         </Modal>
       )}
     </div>
