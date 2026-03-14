@@ -194,7 +194,7 @@ function AppInner() {
     setConfig(cfg);
     api.configure(cfg.apiUrl, cfg.apiKey);
 
-    addLog('NovaSCM v3.1.0-alpha.1 avviato');
+    addLog('NovaSCM v3.1.0 avviato');
     addLog('Server configurato: ' + cfg.apiUrl);
 
     // Immediate health check, then poll every 30 seconds
@@ -457,7 +457,7 @@ function AppInner() {
         </span>
 
         {/* Version */}
-        <span className="titlebar-version">v3.1.0-alpha.1</span>
+        <span className="titlebar-version">v3.1.0</span>
 
         {/* Spacer (already handled by margin-right:auto on version) */}
 
