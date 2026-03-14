@@ -2664,3 +2664,126 @@ table.datagrid.compact th { padding: 6px 10px; }
     print-color-adjust: exact;
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ALPHA.1 / ALPHA.2 — Additional Styles
+   New features: Dashboard, Deploy War Room, PXE, Workflows split-view,
+   Scripts library, Assignments, PC management, extended tags & progress
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ── Extended Tag Color Variants ─────────────────────────────────────── */
+.tag.cyan {
+  background: rgba(6, 182, 212, 0.12);
+  color: #06b6d4;
+}
+
+.tag.teal {
+  background: rgba(20, 184, 166, 0.12);
+  color: #14b8a6;
+}
+
+.tag.lime {
+  background: rgba(132, 204, 22, 0.12);
+  color: #84cc16;
+}
+
+.tag.orange {
+  background: rgba(249, 115, 22, 0.12);
+  color: #f97316;
+}
+
+.tag.grey {
+  background: rgba(100, 116, 139, 0.12);
+  color: #94a3b8;
+}
+
+
+/* ── Button: accent variant ──────────────────────────────────────────── */
+.btn.accent {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn.accent:hover {
+  background: var(--accent);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+
+/* ── Skeleton Bar (loading placeholder) ──────────────────────────────── */
+.skeleton-bar {
+  background: var(--bg-surface3);
+  border-radius: var(--radius-sm);
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  animation: skeletonShimmer 1.5s ease-in-out infinite;
+}
+
+
+/* ── Pulse-dot animation (CR step timeline) ──────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+
+/* ── Pulse-bar animation (Assignment step indicator) ─────────────────── */
+@keyframes pulse-bar {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+
+/* ── Split-view Layout (Workflows / Scripts) ─────────────────────────── */
+.split-view {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 220px);
+}
+
+.split-view .split-left {
+  width: 40%;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+}
+
+.split-view .split-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+
+/* ── Color Utility Classes (standalone text color) ───────────────────── */
+.green  { color: var(--green); }
+.red    { color: var(--red); }
+.amber  { color: var(--amber); }
+.accent { color: var(--accent); }
+.purple { color: var(--purple); }
+.cyan   { color: #06b6d4; }
+.teal   { color: #14b8a6; }
+.lime   { color: #84cc16; }
+.orange { color: #f97316; }
