@@ -219,7 +219,8 @@ async function scanSubnet(cidr, onProgress, onDevice) {
   // Pre-fetch ARP table for MAC resolution
   let arpMap = {};
   try {
-    const arpEntries = await window.electronAPI.arpTable();
+    const arpResult = await window.electronAPI.net.arpTable();
+    const arpEntries = arpResult?.entries || arpResult || [];
     if (Array.isArray(arpEntries)) {
       for (const entry of arpEntries) {
         if (entry.ip) {
@@ -240,14 +241,15 @@ async function scanSubnet(cidr, onProgress, onDevice) {
     const results = await Promise.allSettled(
       batch.map(async (ip) => {
         try {
-          const alive = await window.electronAPI.ping(ip);
-          if (!alive) return null;
+          const pingResult = await window.electronAPI.net.ping(ip);
+          if (!pingResult || !pingResult.alive) return null;
 
           // Resolve MAC
           let mac = arpMap[ip] || '';
           if (!mac) {
             try {
-              const freshArp = await window.electronAPI.arpTable();
+              const freshArpResult = await window.electronAPI.net.arpTable();
+              const freshArp = freshArpResult?.entries || freshArpResult || [];
               if (Array.isArray(freshArp)) {
                 const entry = freshArp.find((e) => e.ip === ip);
                 if (entry) mac = entry.mac || '';
@@ -262,7 +264,14 @@ async function scanSubnet(cidr, onProgress, onDevice) {
           // Port scan
           let openPorts = [];
           try {
-            openPorts = await window.electronAPI.portScan(ip, COMMON_PORTS);
+            const portResults = await Promise.all(
+              COMMON_PORTS.map(p =>
+                window.electronAPI.net.portScan(ip, p)
+                  .then(r => r?.open ? p : null)
+                  .catch(() => null)
+              )
+            );
+            openPorts = portResults.filter(p => p !== null);
           } catch (_) {
             // ignore
           }

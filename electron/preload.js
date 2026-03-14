@@ -54,10 +54,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPlatform: () => ipcRenderer.invoke('app:getPlatform'),
     getArch: () => ipcRenderer.invoke('app:getArch'),
     getUserDataPath: () => ipcRenderer.invoke('app:getUserDataPath'),
+    getInfo: () => ipcRenderer.invoke('app:getInfo'),
   },
 
   // --- Notifications ---
   notification: {
     show: (title, body) => ipcRenderer.invoke('notification:show', title, body),
   },
+
+  // --- Versions (synchronous, for AboutTab) ---
+  versions: {
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+  },
+
+  // --- Platform (synchronous) ---
+  platform: process.platform,
 });

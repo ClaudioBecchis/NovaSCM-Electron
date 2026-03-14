@@ -93,7 +93,7 @@ export default function CertsTab({ addLog }) {
     mac: '',
     device_name: '',
     validity_days: config.certDays || 3650,
-    org_name: config.orgName || 'PolarisCore',
+    org_name: config.certOrg || 'PolarisCore',
   });
 
   const load = useCallback(async () => {
@@ -126,7 +126,7 @@ export default function CertsTab({ addLog }) {
             created_at: created,
             expiry: cr.cert_expiry || expiry,
             validity_days: validityDays,
-            org: cr.cert_org || config.orgName || 'PolarisCore',
+            org: cr.cert_org || config.certOrg || 'PolarisCore',
             cr_id: cr.id,
           });
         }
@@ -149,7 +149,7 @@ export default function CertsTab({ addLog }) {
     } finally {
       setLoading(false);
     }
-  }, [addLog, config.certDays, config.orgName]);
+  }, [addLog, config.certDays, config.certOrg]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -188,7 +188,7 @@ export default function CertsTab({ addLog }) {
         mac: '',
         device_name: '',
         validity_days: config.certDays || 3650,
-        org_name: config.orgName || 'PolarisCore',
+        org_name: config.certOrg || 'PolarisCore',
       });
       addLog(`Certificato generato per ${genForm.device_name} (${genForm.mac})`, 'success');
     } catch (e) {

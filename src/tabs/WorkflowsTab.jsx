@@ -240,13 +240,13 @@ export default function WorkflowsTab({ addLog }) {
     try {
       const data = await api.exportWorkflow(target.id);
       const json = JSON.stringify(data, null, 2);
-      if (window.electronAPI?.saveFile) {
-        const path = await window.electronAPI.saveFile({
+      if (window.electronAPI?.dialog?.saveFile) {
+        const path = await window.electronAPI.dialog.saveFile({
           defaultPath: `${target.nome}.json`,
           filters: [{ name: 'JSON', extensions: ['json'] }],
         });
         if (path) {
-          await window.electronAPI.writeFile(path, json);
+          await window.electronAPI.fs.writeFile(path, json);
           addLog(`Workflow esportato: ${path}`, 'success');
         }
       } else {
@@ -280,9 +280,18 @@ export default function WorkflowsTab({ addLog }) {
 
   const handleFileImport = async () => {
     try {
-      if (window.electronAPI?.openFile) {
-        const content = await window.electronAPI.openFile();
-        if (content) setImportJson(content);
+      if (window.electronAPI?.dialog?.openFile) {
+        const result = await window.electronAPI.dialog.openFile({
+          filters: [{ name: 'JSON', extensions: ['json'] }],
+        });
+        if (result) {
+          const filePath = Array.isArray(result.filePaths) ? result.filePaths[0] : result;
+          if (filePath) {
+            const readResult = await window.electronAPI.fs.readFile(filePath, 'utf-8');
+            const content = readResult?.success ? readResult.data : readResult;
+            if (content) setImportJson(content);
+          }
+        }
       } else {
         const input = document.createElement('input');
         input.type = 'file';

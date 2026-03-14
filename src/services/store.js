@@ -5,26 +5,30 @@
 
 const STORAGE_KEY = 'novascm-config';
 
-const DEFAULT_CONFIG = {
+export const DEFAULT_CONFIG = {
   apiUrl: 'http://192.168.20.110:9091',
   apiKey: '',
-  scanNetworks: ['192.168.10.0/24', '192.168.20.0/24'],
+  scanNetworks: '192.168.10.0/24\n192.168.20.0/24',
+  scanTimeout: 1000,
   certportalUrl: 'http://192.168.20.110:9090',
-  unifiUrl: 'https://192.168.10.1',
-  unifiUser: 'admin',
+  certDays: 365,
+  certOrg: 'PolarisCore',
+  certDomain: 'corp.polariscore.it',
+  certSsid: 'PolarisCore-Secure',
+  certRadiusIp: '192.168.20.105',
+  unifiUrl: '',
+  unifiUser: '',
   unifiPass: '',
-  ssid: 'PolarisCore-Secure',
-  radiusIp: '192.168.20.105',
-  domain: 'corp.polariscore.it',
-  orgName: 'PolarisCore',
-  certDays: 3650,
-  adminPass: '',
-  theme: 'dark',
-  refreshInterval: 10,
+  defaultDomain: 'corp.polariscore.it',
+  defaultOu: 'OU=Computers,DC=corp,DC=polariscore,DC=it',
+  defaultDcIp: '192.168.10.199',
+  pcNamePrefix: 'PC-',
   logLevel: 'info',
+  autoRefresh: 30,
+  theme: 'dark',
 };
 
-function loadConfig() {
+export function loadConfig() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -37,7 +41,7 @@ function loadConfig() {
   return { ...DEFAULT_CONFIG };
 }
 
-function saveConfig(config) {
+export function saveConfig(config) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   } catch (err) {
@@ -45,15 +49,12 @@ function saveConfig(config) {
   }
 }
 
-function getConfigValue(key, defaultValue) {
+export function getConfigValue(key) {
   const config = loadConfig();
-  if (key in config) {
-    return config[key];
-  }
-  return defaultValue !== undefined ? defaultValue : DEFAULT_CONFIG[key];
+  return key in config ? config[key] : DEFAULT_CONFIG[key];
 }
 
-function setConfigValue(key, value) {
+export function setConfigValue(key, value) {
   const config = loadConfig();
   config[key] = value;
   saveConfig(config);

@@ -1,6 +1,6 @@
 {
   "name": "novascm",
-  "version": "3.1.0-alpha.1",
+  "version": "3.1.0-beta.1",
   "description": "NovaSCM - Enterprise Deployment & Asset Management",
   "main": "electron/main.js",
   "scripts": {

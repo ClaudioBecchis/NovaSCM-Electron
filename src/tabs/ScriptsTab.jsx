@@ -319,7 +319,8 @@ export default function ScriptsTab({ addLog, config, toast, serverOnline }) {
         if (result && !result.canceled) {
           const filePath = Array.isArray(result.filePaths) ? result.filePaths[0] : result;
           if (filePath) {
-            content = await window.electronAPI.fs.readFile(filePath, 'utf-8');
+            const readResult = await window.electronAPI.fs.readFile(filePath, 'utf-8');
+            content = readResult?.success ? readResult.data : readResult;
             // Extract filename without extension for script name
             const parts = filePath.replace(/\\/g, '/').split('/');
             fileName = parts[parts.length - 1].replace(/\.ps1$/i, '');
