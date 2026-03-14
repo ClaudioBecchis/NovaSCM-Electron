@@ -156,26 +156,8 @@ export default function NetworkTab({ addLog }) {
   const scanningRef = useRef(scanning);
   useEffect(() => { scanningRef.current = scanning; }, [scanning]);
 
-  // Auto-scan timer
-  useEffect(() => {
-    if (autoScanTimerRef.current) {
-      clearInterval(autoScanTimerRef.current);
-      autoScanTimerRef.current = null;
-    }
-    if (autoScanEnabled && autoScanInterval > 0) {
-      autoScanTimerRef.current = setInterval(() => {
-        if (!scanningRef.current) {
-          addLog(`Auto-scan avviata (ogni ${autoScanInterval} min)`, 'info');
-          scan();
-        }
-      }, autoScanInterval * 60 * 1000);
-    }
-    return () => {
-      if (autoScanTimerRef.current) {
-        clearInterval(autoScanTimerRef.current);
-      }
-    };
-  }, [autoScanEnabled, autoScanInterval, scan, addLog]);
+  // Keep a ref to the scan function so auto-scan timer can call it without dep issues
+  const scanRef = useRef(null);
 
   // Save auto-scan preference
   const toggleAutoScan = (enabled) => {
@@ -292,9 +274,9 @@ export default function NetworkTab({ addLog }) {
     setDevices([]);
     setProgress(0);
 
-    const api = window.electronAPI;
+    const api = window.electronAPI?.net;
     if (!api?.ping) {
-      addLog('electronAPI non disponibile - scansione simulata non possibile', 'error');
+      addLog('electronAPI.net non disponibile - scansione non possibile', 'error');
       setScanning(false);
       return;
     }
@@ -374,6 +356,30 @@ export default function NetworkTab({ addLog }) {
     addLog(`Scansione completata: ${found.length} dispositivi trovati su ${subnets.length} subnet`, 'success');
   }, [subnets, scanning, addLog]);
 
+  // Update scanRef whenever scan changes so auto-scan timer uses the latest version
+  useEffect(() => { scanRef.current = scan; }, [scan]);
+
+  // Auto-scan timer
+  useEffect(() => {
+    if (autoScanTimerRef.current) {
+      clearInterval(autoScanTimerRef.current);
+      autoScanTimerRef.current = null;
+    }
+    if (autoScanEnabled && autoScanInterval > 0) {
+      autoScanTimerRef.current = setInterval(() => {
+        if (!scanningRef.current && scanRef.current) {
+          addLog(`Auto-scan avviata (ogni ${autoScanInterval} min)`, 'info');
+          scanRef.current();
+        }
+      }, autoScanInterval * 60 * 1000);
+    }
+    return () => {
+      if (autoScanTimerRef.current) {
+        clearInterval(autoScanTimerRef.current);
+      }
+    };
+  }, [autoScanEnabled, autoScanInterval, addLog]);
+
   const openConnection = (device, protocol) => {
     const shell = window.electronAPI?.shell;
     if (!shell?.openExternal) {
@@ -416,7 +422,11 @@ export default function NetworkTab({ addLog }) {
 
   const handleContextMenu = (e, row) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, device: row });
+    // Clamp position so context menu doesn't go off-screen
+    const menuW = 200, menuH = 260;
+    const x = Math.min(e.clientX, window.innerWidth - menuW);
+    const y = Math.min(e.clientY, window.innerHeight - menuH);
+    setContextMenu({ x, y, device: row });
   };
 
   const stats = {
@@ -562,7 +572,7 @@ export default function NetworkTab({ addLog }) {
         <DataGrid
           columns={columns}
           data={devices}
-          onRowDouble={(row) => setDetailDevice(row)}
+          onRowDoubleClick={(row) => setDetailDevice(row)}
           actions={
             <button className="btn" onClick={scan} disabled={scanning}>{'\uD83D\uDD04'}</button>
           }
