@@ -325,7 +325,7 @@ export default function SoftwareTab({ addLog }) {
               className="form-textarea"
               value={distForm.pcs}
               onChange={e => setDistForm({ ...distForm, pcs: e.target.value })}
-              placeholder="PC-AABBCC, PC-DDEEFF, 192.168.10.105"
+              placeholder="PC-AABBCC, PC-DDEEFF, 192.168.1.105"
               style={{ minHeight: 60 }}
             />
           </div>

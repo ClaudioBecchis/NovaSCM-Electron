@@ -296,7 +296,7 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
             value={scanNets}
             onChange={e => updateField('scanNetworks', e.target.value)}
             style={{ minHeight: 60, fontFamily: 'var(--font-mono)', fontSize: 12 }}
-            placeholder={'192.168.10.0/24\n192.168.20.0/24'}
+            placeholder={'192.168.1.0/24\n192.168.2.0/24'}
           />
         </div>
         <div className="form-row">
@@ -348,7 +348,7 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
               className="form-input"
               value={config.certOrg || ''}
               onChange={e => updateField('certOrg', e.target.value)}
-              placeholder="PolarisCore"
+              placeholder="MyOrg"
             />
           </div>
           <div className="form-group">
@@ -357,7 +357,7 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
               className="form-input"
               value={config.certSsid || ''}
               onChange={e => updateField('certSsid', e.target.value)}
-              placeholder="PolarisCore-Secure"
+              placeholder="MyNetwork-Secure"
             />
           </div>
           <div className="form-group">
@@ -387,7 +387,7 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
               value={config.unifiUrl || ''}
               onChange={e => updateField('unifiUrl', e.target.value)}
               style={{ fontFamily: 'var(--font-mono)' }}
-              placeholder="https://192.168.10.1"
+              placeholder="https://192.168.1.1"
             />
           </div>
           <div className="form-group">
@@ -433,7 +433,7 @@ export default function SettingsTab({ addLog, config: parentConfig, updateConfig
               className="form-input"
               value={config.defaultOu || ''}
               onChange={e => updateField('defaultOu', e.target.value)}
-              placeholder="OU=Computers,DC=corp,DC=polariscore,DC=it"
+              placeholder="OU=Computers,DC=corp,DC=example,DC=com"
               style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
             />
           </div>

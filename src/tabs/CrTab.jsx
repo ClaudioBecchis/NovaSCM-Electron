@@ -50,7 +50,7 @@ const EMPTY_CR = {
   domain: 'corp.example.com',
   join_user: 'Administrator',
   join_pass: '',
-  ou: 'OU=Workstations,DC=corp,DC=polariscore,DC=it',
+  ou: 'OU=Workstations,DC=corp,DC=example,DC=com',
   dc_ip: '192.168.1.199',
   assigned_user: '',
   software: [],

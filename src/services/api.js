@@ -1,6 +1,6 @@
 /**
  * NovaSCM API Client
- * Communicates with NovaSCM Flask server (CT 103, 192.168.1.100:9091).
+ * Communicates with NovaSCM Flask server (192.168.1.100:9091).
  */
 
 import axios from 'axios';

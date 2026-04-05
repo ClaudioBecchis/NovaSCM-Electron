@@ -194,7 +194,7 @@ export default function AboutTab({ config }) {
         <span style={{ color: 'var(--border)' }}>|</span>
         <a
           href="#"
-          onClick={(e) => { e.preventDefault(); openExternal('https://www.polariscore.it'); }}
+          onClick={(e) => { e.preventDefault(); openExternal('https://www.example.com'); }}
           style={linkStyle}
         >
           PolarisCore
@@ -202,7 +202,7 @@ export default function AboutTab({ config }) {
         <span style={{ color: 'var(--border)' }}>|</span>
         <a
           href="#"
-          onClick={(e) => { e.preventDefault(); openExternal('https://novascm.polariscore.it'); }}
+          onClick={(e) => { e.preventDefault(); openExternal('https://novascm.example.com'); }}
           style={linkStyle}
         >
           Documentazione

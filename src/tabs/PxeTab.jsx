@@ -632,7 +632,7 @@ export default function PxeTab({ addLog, config, toast, serverOnline }) {
                 className="form-input"
                 value={settingsForm.pxe_default_ou || ''}
                 onChange={e => updateSetting('pxe_default_ou', e.target.value)}
-                placeholder="OU=Workstations,DC=corp,DC=polariscore,DC=it"
+                placeholder="OU=Workstations,DC=corp,DC=example,DC=com"
               />
             </div>
             <div className="form-group">

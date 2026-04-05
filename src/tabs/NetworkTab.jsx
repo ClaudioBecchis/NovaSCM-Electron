@@ -123,7 +123,7 @@ export default function NetworkTab({ addLog }) {
   // Load subnets from config and previous scan results
   useEffect(() => {
     const config = store.loadConfig();
-    const nets = config.scanNetworks || ['192.168.10.0/24', '192.168.20.0/24'];
+    const nets = config.scanNetworks || ['192.168.1.0/24', '192.168.2.0/24'];
     setSubnets(nets);
 
     const saved = loadScanResults();
@@ -247,7 +247,7 @@ export default function NetworkTab({ addLog }) {
   };
 
   const addSubnet = () => {
-    setSubnets(prev => [...prev, '192.168.30.0/24']);
+    setSubnets(prev => [...prev, '192.168.3.0/24']);
   };
 
   const removeSubnet = (idx) => {
