@@ -1,14 +1,11 @@
-# NovaSCM Electron
+# NovaSCM Electron — ⚠️ Prototipo archiviato
 
-Desktop client per NovaSCM — gestione IT, scansione rete, deploy Windows e WiFi enterprise.
+Questo era un **prototipo sperimentale** del client NovaSCM in Electron + React. Non è mantenuto e le release non contengono binari.
 
-Stack: Electron 34 + React 19 + Vite 6
+## 👉 Il client ufficiale è [**NovaSCM**](https://github.com/ClaudioBecchis/NovaSCM)
 
-## Setup
-```
-npm install
-npm start
-```
+- Client Windows (WPF .NET 9) + server Flask con deploy PXE zero-touch
+- [Documentazione completa](https://novascm.polariscore.it/docs/) · [Wiki](https://github.com/ClaudioBecchis/NovaSCM/wiki) · [Download](https://github.com/ClaudioBecchis/NovaSCM/releases/latest)
+- Per Linux: [NovaSCM-Linux](https://github.com/ClaudioBecchis/NovaSCM-Linux) (port Avalonia)
 
-## License
-MIT
+License: MIT
